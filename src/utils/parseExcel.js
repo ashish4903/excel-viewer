@@ -57,7 +57,8 @@ export async function parseExcel(file, onProgress = () => {}) {
   try {
     result = await readXlsxFile(file)
   } catch (err) {
-    throw new ImportError('Could not read this workbook. It may be damaged; try opening it in Excel and saving it again.', err?.message ?? String(err))
+    // The stack shows where inside read-excel-file it failed (e.g. a "Maximum call stack" RangeError).
+    throw new ImportError('Could not read this workbook. It may be damaged; try opening it in Excel and saving it again.', err?.stack ?? err?.message ?? String(err))
   }
 
   // Newer read-excel-file versions return [{ sheet, data }]; older ones return one sheet's rows.
