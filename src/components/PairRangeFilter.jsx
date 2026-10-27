@@ -5,7 +5,7 @@ import RangeInputs from './RangeInputs.jsx'
 
 // Min/max filter over a from/to column pair (configured in rangeFilters, e.g. salary range).
 function PairRangeFilter({ pair, rows, value, onChange }) {
-  const bounds = useMemo(() => getNumberBounds(rows, [pair.fromKey, pair.toKey]), [rows, pair])
+  const bounds = useMemo(() => getNumberBounds(rows, [pair.fromIndex, pair.toIndex]), [rows, pair])
 
   return (
     <div className={`field range${isFilterActive(value) ? ' active' : ''}`}>

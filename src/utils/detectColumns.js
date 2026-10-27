@@ -33,10 +33,10 @@ export function humanize(header) {
     .join(' ')
 }
 
-function inferType(header, values) {
-  if (values.length === 0) return 'empty'
-  if (values.every((v) => v instanceof Date)) return 'date'
-  if (values.every((v) => typeof v === 'number')) return isCodeHeader(header) ? 'code' : 'number'
+function inferType(header, count, allDates, allNumbers) {
+  if (count === 0) return 'empty'
+  if (allDates) return 'date'
+  if (allNumbers) return isCodeHeader(header) ? 'code' : 'number'
   return 'text'
 }
 
@@ -47,18 +47,38 @@ function filterKindFor(type, distinct) {
 }
 
 // Builds column definitions from headers and data rows (arrays of cells).
+// key identifies the column in filters and saved preferences; index is its position in each row array.
 export function detectColumns(headers, dataRows) {
   return headers.map((header, i) => {
-    const values = dataRows.map((row) => row[i]).filter((v) => !isEmpty(v))
-    const distinct = new Set(values.map((v) => (v instanceof Date ? v.getTime() : v))).size
+    // Single pass over the column, without intermediate arrays (matters for 50k+ row files).
+    let count = 0
+    let allDates = true
+    let allNumbers = true
+    const distinctValues = new Set()
+    for (const row of dataRows) {
+      const v = row[i]
+      if (isEmpty(v)) continue
+      count++
+      if (v instanceof Date) {
+        allNumbers = false
+        distinctValues.add(v.getTime())
+      } else {
+        allDates = false
+        if (typeof v !== 'number') allNumbers = false
+        distinctValues.add(v)
+      }
+    }
+    const distinct = distinctValues.size
+
     const override = columnOverrides[header] ?? {}
-    const empty = values.length === 0
-    const type = override.type ?? inferType(header, values)
+    const empty = count === 0
+    const type = override.type ?? inferType(header, count, allDates, allNumbers)
     // Suggest a dropdown for text columns with a handful of repeating values (e.g. status, state).
-    const suggested = override.filterable ?? (type === 'text' && distinct >= 2 && distinct <= 50 && distinct < values.length * 0.6)
+    const suggested = override.filterable ?? (type === 'text' && distinct >= 2 && distinct <= 50 && distinct < count * 0.6)
 
     return {
       key: `c${i}`,
+      index: i,
       header,
       label: override.label ?? humanize(header),
       type,
@@ -66,7 +86,7 @@ export function detectColumns(headers, dataRows) {
       hidden: override.hidden ?? false,
       empty,
       // Every row has a different, non-empty value: a good card/detail title.
-      unique: !empty && values.length === dataRows.length && distinct === values.length,
+      unique: !empty && count === dataRows.length && distinct === count,
       suggestedFilter: !empty && suggested,
       filterKind: filterKindFor(type, distinct),
     }

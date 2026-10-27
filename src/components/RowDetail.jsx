@@ -20,7 +20,7 @@ function RowDetail({ row, columns, titleColumn, onClose }) {
 
   const fields = columns
     .filter((c) => c.key !== titleColumn.key)
-    .map((c) => ({ column: c, text: formatCell(row[c.key], c.type) }))
+    .map((c) => ({ column: c, text: formatCell(row[c.index], c.type) }))
     .filter((field) => field.text)
   const emptyCount = columns.length - 1 - fields.length
 
@@ -36,7 +36,7 @@ function RowDetail({ row, columns, titleColumn, onClose }) {
         <header className="drawer-header">
           <div>
             <span className="eyebrow">{titleColumn.label}</span>
-            <h2 id="drawer-title">{formatCell(row[titleColumn.key], titleColumn.type) || '—'}</h2>
+            <h2 id="drawer-title">{formatCell(row[titleColumn.index], titleColumn.type) || '—'}</h2>
           </div>
           <button type="button" className="icon-button secondary" onClick={onClose} aria-label="Close" autoFocus>
             <Icon name="x" />
@@ -47,7 +47,7 @@ function RowDetail({ row, columns, titleColumn, onClose }) {
             <div key={column.key} className="detail-row">
               <dt>{column.label}</dt>
               <dd>
-                <CellValue value={row[column.key]} column={column} />
+                <CellValue value={row[column.index]} column={column} />
                 <CopyButton text={text} label={column.label} />
               </dd>
             </div>

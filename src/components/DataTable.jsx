@@ -37,7 +37,7 @@ function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey 
             >
               {columns.map((c) => (
                 <td key={c.key} className={c.type === 'currency' || c.type === 'number' ? 'numeric' : undefined}>
-                  <CellValue value={row[c.key]} column={c} query={query} />
+                  <CellValue value={row[c.index]} column={c} query={query} />
                 </td>
               ))}
             </tr>

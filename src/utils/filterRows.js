@@ -37,26 +37,27 @@ function buildTest(key, value, columnsByKey, pairRanges) {
     const max = toNumber(value.max)
     // Overlap of the row's [from, to] with [min, max]; a missing end falls back to the other one.
     return (row) => {
-      const from = toNumber(row[pair.fromKey]) ?? toNumber(row[pair.toKey])
-      const to = toNumber(row[pair.toKey]) ?? from
+      const from = toNumber(row[pair.fromIndex]) ?? toNumber(row[pair.toIndex])
+      const to = toNumber(row[pair.toIndex]) ?? from
       return from !== null && (min === null || to >= min) && (max === null || from <= max)
     }
   }
 
   const column = columnsByKey.get(key)
   if (!column) return null
+  const i = column.index
   switch (column.filterKind) {
     case 'select':
-      return (row) => formatCell(row[key], column.type) === value
+      return (row) => formatCell(row[i], column.type) === value
     case 'contains': {
       const needle = value.trim().toLowerCase()
-      return (row) => formatCell(row[key], column.type).toLowerCase().includes(needle)
+      return (row) => formatCell(row[i], column.type).toLowerCase().includes(needle)
     }
     case 'numberRange': {
       const min = toNumber(value.min)
       const max = toNumber(value.max)
       return (row) => {
-        const n = toNumber(row[key])
+        const n = toNumber(row[i])
         return n !== null && within(n, min, max)
       }
     }
@@ -64,7 +65,7 @@ function buildTest(key, value, columnsByKey, pairRanges) {
       const min = value.min || null
       const max = value.max || null
       return (row) => {
-        const d = toIsoDate(row[key])
+        const d = toIsoDate(row[i])
         return d !== null && within(d, min, max)
       }
     }
@@ -74,24 +75,32 @@ function buildTest(key, value, columnsByKey, pairRanges) {
 }
 
 // Keeps rows matching every active filter and the search text (searched across all columns).
+// Each row's precomputed search text sits after its cells, at row[columns.length] (see parseExcel).
 export function filterRows(rows, { columns, pairRanges = [], search = '', filters = {} }) {
   const query = search.trim().toLowerCase()
+  const searchIndex = columns.length
   const columnsByKey = new Map(columns.map((c) => [c.key, c]))
   const tests = getActiveFilters(filters)
     .map(([key, value]) => buildTest(key, value, columnsByKey, pairRanges))
     .filter(Boolean)
 
-  return rows.filter((row) => tests.every((test) => test(row)) && (!query || row._search.includes(query)))
+  if (tests.length === 0 && !query) return rows
+  return rows.filter((row) => tests.every((test) => test(row)) && (!query || row[searchIndex].includes(query)))
 }
 
-// Sorts by sort.key in sort.direction; empty cells always go last.
-export function sortRows(rows, sort) {
-  if (!sort.key) return rows
+// One shared collator: localeCompare with options builds a new one on every call, which is slow.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+// Sorts by the sort.key column in sort.direction; empty cells always go last.
+export function sortRows(rows, sort, columns) {
+  const column = sort.key && columns.find((c) => c.key === sort.key)
+  if (!column) return rows
+  const i = column.index
   const direction = sort.direction === 'asc' ? 1 : -1
 
   return [...rows].sort((a, b) => {
-    const x = a[sort.key]
-    const y = b[sort.key]
+    const x = a[i]
+    const y = b[i]
     if (isEmpty(x) || isEmpty(y)) return isEmpty(x) - isEmpty(y)
     return compareValues(x, y) * direction
   })
@@ -100,22 +109,26 @@ export function sortRows(rows, sort) {
 function compareValues(x, y) {
   if (x instanceof Date && y instanceof Date) return x.getTime() - y.getTime()
   if (typeof x === 'number' && typeof y === 'number') return x - y
-  return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' })
+  return collator.compare(String(x), String(y))
 }
 
 // Distinct non-empty display values of a column, sorted, for a dropdown filter.
 export function getFilterOptions(rows, column) {
-  const values = new Set(rows.map((row) => formatCell(row[column.key], column.type)).filter(Boolean))
-  return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const values = new Set()
+  for (const row of rows) {
+    const text = formatCell(row[column.index], column.type)
+    if (text) values.add(text)
+  }
+  return [...values].sort(collator.compare)
 }
 
-// Smallest and largest numeric value across the given columns.
-export function getNumberBounds(rows, keys) {
+// Smallest and largest numeric value across the given column indexes.
+export function getNumberBounds(rows, indexes) {
   let min = null
   let max = null
   for (const row of rows) {
-    for (const key of keys) {
-      const n = toNumber(row[key])
+    for (const i of indexes) {
+      const n = toNumber(row[i])
       if (n === null) continue
       if (min === null || n < min) min = n
       if (max === null || n > max) max = n

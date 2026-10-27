@@ -8,7 +8,7 @@ import Icon from './Icon.jsx'
 function FilterControl({ column, rows, value, onChange, onRemove }) {
   const kind = column.filterKind
   const options = useMemo(() => (kind === 'select' ? getFilterOptions(rows, column) : []), [kind, rows, column])
-  const bounds = useMemo(() => (kind === 'numberRange' ? getNumberBounds(rows, [column.key]) : null), [kind, rows, column])
+  const bounds = useMemo(() => (kind === 'numberRange' ? getNumberBounds(rows, [column.index]) : null), [kind, rows, column])
   const isRange = kind === 'numberRange' || kind === 'dateRange'
 
   let control

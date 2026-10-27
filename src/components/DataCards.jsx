@@ -14,16 +14,16 @@ function DataCards({ rows, columns, titleColumn, onSelect, query, animationKey }
   return (
     <ul className="cards" key={animationKey}>
       {rows.map((row, i) => {
-        const preview = fieldColumns.filter((c) => formatCell(row[c.key], c.type)).slice(0, PREVIEW_FIELDS)
+        const preview = fieldColumns.filter((c) => formatCell(row[c.index], c.type)).slice(0, PREVIEW_FIELDS)
         return (
           <li key={i} style={{ '--i': i }}>
             <button type="button" className="card" onClick={() => onSelect(row)}>
               <div className="card-header">
                 <h3>
-                  <CellValue value={row[titleColumn.key]} column={titleColumn} query={query} />
+                  <CellValue value={row[titleColumn.index]} column={titleColumn} query={query} />
                 </h3>
                 {badgeColumns.map((c) => (
-                  <CellValue key={c.key} value={row[c.key]} column={c} query={query} />
+                  <CellValue key={c.key} value={row[c.index]} column={c} query={query} />
                 ))}
               </div>
               <dl>
@@ -31,7 +31,7 @@ function DataCards({ rows, columns, titleColumn, onSelect, query, animationKey }
                   <div key={c.key}>
                     <dt>{c.label}</dt>
                     <dd>
-                      <CellValue value={row[c.key]} column={c} query={query} />
+                      <CellValue value={row[c.index]} column={c} query={query} />
                     </dd>
                   </div>
                 ))}

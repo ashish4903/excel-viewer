@@ -16,7 +16,7 @@ import Pagination from './components/Pagination.jsx'
 import RowDetail from './components/RowDetail.jsx'
 import StatusMessage from './components/StatusMessage.jsx'
 import Icon from './components/Icon.jsx'
-import { parseExcel } from './utils/parseExcel.js'
+import { parseInWorker } from './utils/parseInWorker.js'
 import { filterRows, getActiveFilters, sortRows } from './utils/filterRows.js'
 import { clearVisibleKeys, defaultVisibleKeys, loadVisibleKeys, saveVisibleKeys } from './utils/columnPrefs.js'
 import { exportCsv } from './utils/exportCsv.js'
@@ -29,6 +29,7 @@ function App() {
   const [sheetIndex, setSheetIndex] = useState(0)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState('')
   const [search, setSearch] = useState('')
   // Keyed by column key (or "pair:<key>"); strings for list/text filters, { min, max } for ranges.
   const [filters, setFilters] = useState({})
@@ -53,9 +54,10 @@ function App() {
 
   async function handleFile(file) {
     setLoading(true)
+    setProgress('')
     setError('')
     try {
-      const result = await parseExcel(file)
+      const result = await parseInWorker(file, setProgress)
       setData({ ...result, fileName: file.name })
       setSheetIndex(0)
       resetView(result.sheets[0])
@@ -141,7 +143,7 @@ function App() {
     () => (rows ? filterRows(rows, { columns, pairRanges, search: deferredSearch, filters }) : []),
     [rows, columns, pairRanges, deferredSearch, filters],
   )
-  const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort])
+  const sorted = useMemo(() => (columns ? sortRows(filtered, sort, columns) : filtered), [filtered, sort, columns])
   const visibleColumns = useMemo(() => (columns ?? []).filter((c) => visibleKeys.has(c.key)), [columns, visibleKeys])
 
   if (!sheet) {
@@ -150,7 +152,7 @@ function App() {
         <AppBar />
         <main className="content">
           {error && <StatusMessage kind="error">{error}</StatusMessage>}
-          <FileUpload variant="hero" onFile={handleFile} loading={loading} />
+          <FileUpload variant="hero" onFile={handleFile} loading={loading} progress={progress} />
         </main>
       </div>
     )
@@ -174,7 +176,7 @@ function App() {
     <div className="app">
       <AppBar
         subtitle={data.sheets.length > 1 ? `${data.fileName} · ${sheet.name}` : data.fileName}
-        actions={<FileUpload variant="compact" onFile={handleFile} loading={loading} />}
+        actions={<FileUpload variant="compact" onFile={handleFile} loading={loading} progress={progress} />}
       />
 
       <main className="content">
