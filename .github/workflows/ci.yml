@@ -1,4 +1,4 @@
-# Lints and builds the app on every push and pull request,
+# Lints, tests and builds the app on every push and pull request,
 # and deploys it to GitHub Pages on every push to main.
 name: CI
 
@@ -27,6 +27,7 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
