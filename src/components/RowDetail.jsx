@@ -1,14 +1,11 @@
 import { useEffect } from 'react'
-import { columns } from '../config/columns.js'
 import { formatCell } from '../utils/formatCell.js'
 import CellValue from './CellValue.jsx'
 import CopyButton from './CopyButton.jsx'
 import Icon from './Icon.jsx'
 
-const [titleColumn, ...fieldColumns] = columns
-
-// Slide-in panel with every configured column for one row.
-function RowDetail({ row, onClose }) {
+// Slide-in panel with every non-empty column for one row, including columns hidden in the table.
+function RowDetail({ row, columns, titleColumn, onClose }) {
   useEffect(() => {
     function handleKey(event) {
       if (event.key === 'Escape') onClose()
@@ -20,6 +17,12 @@ function RowDetail({ row, onClose }) {
       document.body.style.overflow = ''
     }
   }, [onClose])
+
+  const fields = columns
+    .filter((c) => c.key !== titleColumn.key)
+    .map((c) => ({ column: c, text: formatCell(row[c.key], c.type) }))
+    .filter((field) => field.text)
+  const emptyCount = columns.length - 1 - fields.length
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -40,18 +43,20 @@ function RowDetail({ row, onClose }) {
           </button>
         </header>
         <dl className="drawer-body">
-          {fieldColumns.map((c) => {
-            const text = formatCell(row[c.key], c.type)
-            return (
-              <div key={c.key} className="detail-row">
-                <dt>{c.label}</dt>
-                <dd>
-                  <CellValue value={row[c.key]} column={c} />
-                  {text && <CopyButton text={text} label={c.label} />}
-                </dd>
-              </div>
-            )
-          })}
+          {fields.map(({ column, text }) => (
+            <div key={column.key} className="detail-row">
+              <dt>{column.label}</dt>
+              <dd>
+                <CellValue value={row[column.key]} column={column} />
+                <CopyButton text={text} label={column.label} />
+              </dd>
+            </div>
+          ))}
+          {emptyCount > 0 && (
+            <p className="drawer-note">
+              {emptyCount} empty {emptyCount === 1 ? 'field' : 'fields'} not shown
+            </p>
+          )}
         </dl>
       </aside>
     </div>

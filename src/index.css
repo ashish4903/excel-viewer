@@ -599,19 +599,80 @@ kbd {
   color: var(--accent);
 }
 
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.icon-button.ghost.tiny {
+  width: 24px;
+  min-height: 24px;
+}
+
+.text-input {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.text-input:hover {
+  border-color: var(--accent);
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.field.active .text-input {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+}
+
+/* "+ Add filter" tile in the filters grid */
+.add-filter {
+  display: flex;
+  align-items: flex-end;
+}
+
+.add-filter-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+
+.add-filter-button:hover,
+.add-filter-button[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* Range filter (min – max) */
-fieldset.field {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-}
-
-fieldset.field legend {
-  padding: 0;
-  margin-bottom: 6px;
-}
-
 .range-inputs {
   display: flex;
   align-items: center;
@@ -654,7 +715,7 @@ fieldset.field legend {
   border-color: var(--error-text);
 }
 
-fieldset.field small {
+.field small {
   margin-top: 4px;
   font-size: 0.75rem;
   font-weight: 500;
@@ -663,7 +724,7 @@ fieldset.field small {
   color: var(--muted);
 }
 
-fieldset.field small.error-text {
+.field small.error-text {
   color: var(--error-text);
 }
 
@@ -806,6 +867,149 @@ fieldset.field small.error-text {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.check span:first-of-type {
+  flex: 1;
+}
+
+.check.muted {
+  color: var(--muted);
+}
+
+.popover.wide {
+  width: min(340px, calc(100vw - 32px));
+  max-height: 440px;
+}
+
+.popover-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 10px 4px;
+  padding: 0 10px;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.popover-search:focus-within {
+  border-color: var(--accent);
+}
+
+.popover-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.popover-actions {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.group-label {
+  padding: 10px 8px 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---------- Sheet tabs ---------- */
+.sheet-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.sheet-tab:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sheet-tab.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.sheet-tab.active .count {
+  background: rgba(255, 255, 255, 0.25);
+  color: inherit;
+}
+
+.drawer-note {
+  padding: 14px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 /* ---------- Badges & highlights ---------- */
@@ -1319,6 +1523,11 @@ td.numeric {
   .popover {
     left: auto;
     right: 0;
+  }
+
+  .add-filter .popover {
+    left: 0;
+    right: auto;
   }
 
   /* Table replaces cards; column headers handle sorting. */

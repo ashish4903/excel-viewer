@@ -36,7 +36,7 @@ function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey 
               onKeyDown={(event) => event.key === 'Enter' && onSelect(row)}
             >
               {columns.map((c) => (
-                <td key={c.key} className={c.type === 'currency' ? 'numeric' : undefined}>
+                <td key={c.key} className={c.type === 'currency' || c.type === 'number' ? 'numeric' : undefined}>
                   <CellValue value={row[c.key]} column={c} query={query} />
                 </td>
               ))}

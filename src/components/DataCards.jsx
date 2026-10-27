@@ -4,10 +4,10 @@ import Icon from './Icon.jsx'
 
 const PREVIEW_FIELDS = 5
 
-// The first visible column is the card title; badge columns sit beside it.
-// Up to PREVIEW_FIELDS other non-empty fields are previewed; the rest open in the detail panel.
-function DataCards({ rows, columns, onSelect, query, animationKey }) {
-  const [titleColumn, ...rest] = columns
+// titleColumn heads each card (even if hidden in the table); visible badge columns sit beside it.
+// Up to PREVIEW_FIELDS other non-empty visible fields are previewed; the rest open in the detail panel.
+function DataCards({ rows, columns, titleColumn, onSelect, query, animationKey }) {
+  const rest = columns.filter((c) => c.key !== titleColumn.key)
   const badgeColumns = rest.filter((c) => c.display === 'badge')
   const fieldColumns = rest.filter((c) => c.display !== 'badge')
 
