@@ -27,7 +27,7 @@ const NO_SORT = { key: null, direction: 'asc' }
 function App() {
   const [data, setData] = useState(null)
   const [sheetIndex, setSheetIndex] = useState(0)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null) // { message, detail }
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState('')
   const [search, setSearch] = useState('')
@@ -55,14 +55,16 @@ function App() {
   async function handleFile(file) {
     setLoading(true)
     setProgress('')
-    setError('')
+    setError(null)
     try {
       const result = await parseInWorker(file, setProgress)
       setData({ ...result, fileName: file.name })
       setSheetIndex(0)
       resetView(result.sheets[0])
     } catch (err) {
-      setError(err.message)
+      // Logged so a failed import can be traced later from the browser console (F12).
+      console.error(`Excel import failed for "${file.name}" (${file.size.toLocaleString()} bytes): ${err.message}`, err.detail ?? '')
+      setError({ message: err.message, detail: err.detail })
     } finally {
       setLoading(false)
     }
@@ -151,7 +153,11 @@ function App() {
       <div className="app">
         <AppBar />
         <main className="content">
-          {error && <StatusMessage kind="error">{error}</StatusMessage>}
+          {error && (
+            <StatusMessage kind="error" detail={error.detail}>
+              {error.message}
+            </StatusMessage>
+          )}
           <FileUpload variant="hero" onFile={handleFile} loading={loading} progress={progress} />
         </main>
       </div>
@@ -180,7 +186,11 @@ function App() {
       />
 
       <main className="content">
-        {error && <StatusMessage kind="error">{error}</StatusMessage>}
+        {error && (
+            <StatusMessage kind="error" detail={error.detail}>
+              {error.message}
+            </StatusMessage>
+          )}
 
         <SheetTabs sheets={data.sheets} active={sheetIndex} onChange={handleSheetChange} />
 

@@ -7,24 +7,57 @@ import { formatCell } from './formatCell.js'
 const isEmpty = (cell) => cell === null || cell === undefined || cell === ''
 const PROGRESS_EVERY = 5000
 
+// A failure with a user-facing message plus technical detail (shown under "Technical details" and logged).
+export class ImportError extends Error {
+  constructor(message, detail = '') {
+    super(message)
+    this.name = 'ImportError'
+    this.detail = detail
+  }
+}
+
+// .xlsx files are zip archives; password-protected .xlsx and old .xls files are OLE compound files.
+const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04]
+const OLE_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0]
+
+async function checkSignature(file) {
+  if (file.size === 0) throw new ImportError('This file is empty (0 bytes).')
+  const head = new Uint8Array(await file.slice(0, 4).arrayBuffer())
+  const startsWith = (signature) => signature.every((byte, i) => head[i] === byte)
+  const hex = [...head].map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')
+  if (startsWith(OLE_SIGNATURE)) {
+    throw new ImportError(
+      'This file is password-protected or saved in the old .xls format. Open it in Excel and save it as .xlsx without a password.',
+      `File starts with ${hex} (OLE compound file), not 50 4B 03 04 (.xlsx).`,
+    )
+  }
+  if (!startsWith(ZIP_SIGNATURE)) {
+    throw new ImportError(
+      'This isn’t a real .xlsx workbook. It may be a CSV or another file renamed to .xlsx.',
+      `File starts with ${hex}; .xlsx files start with 50 4B 03 04.`,
+    )
+  }
+}
+
 // Reads every sheet of an .xlsx file. The first non-empty row of each sheet is its header row.
 // Returns { sheets: [{ name, columns, rows, titleKey, pairRanges, suggestedFilterKeys }] },
-// skipping sheets without data; throws an Error with a user-facing message on failure.
+// skipping sheets without data; throws an ImportError (message + detail) on failure.
 //
 // Each row is an array: row[column.index] is the cell value, and row[columns.length] is the
 // row's lowercase search text. Arrays (not objects) keep the hand-off from the worker fast.
 // onProgress(message) reports what is happening, for the loading screen.
 export async function parseExcel(file, onProgress = () => {}) {
   if (!file.name.toLowerCase().endsWith('.xlsx')) {
-    throw new Error('Please choose an .xlsx file.')
+    throw new ImportError('Please choose an .xlsx file.', `Selected file: ${file.name}`)
   }
+  await checkSignature(file)
 
   onProgress('Reading workbook…')
   let result
   try {
     result = await readXlsxFile(file)
-  } catch {
-    throw new Error('Could not read this file. Make sure it is a valid .xlsx workbook.')
+  } catch (err) {
+    throw new ImportError('Could not read this workbook. It may be damaged; try opening it in Excel and saving it again.', err?.message ?? String(err))
   }
 
   // Newer read-excel-file versions return [{ sheet, data }]; older ones return one sheet's rows.
@@ -34,7 +67,10 @@ export async function parseExcel(file, onProgress = () => {}) {
     .filter(Boolean)
 
   if (sheets.length === 0) {
-    throw new Error('No data found. The file needs a header row followed by at least one row of data.')
+    throw new ImportError(
+      'No data found. The file needs a header row followed by at least one row of data.',
+      `Sheets checked: ${rawSheets.map(({ sheet, data }) => `${sheet} (${data.length} rows incl. header)`).join(', ')}`,
+    )
   }
   return { sheets }
 }

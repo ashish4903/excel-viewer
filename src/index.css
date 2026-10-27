@@ -406,6 +406,31 @@ p {
   margin-top: 2px;
 }
 
+.status-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.status-detail {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.status-detail summary {
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.status-detail pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+
 .status-warning {
   background: var(--warning-bg);
   color: var(--warning-text);

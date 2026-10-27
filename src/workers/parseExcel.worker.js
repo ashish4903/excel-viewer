@@ -1,4 +1,4 @@
-import { parseExcel } from '../utils/parseExcel.js'
+import { ImportError, parseExcel } from '../utils/parseExcel.js'
 
 // Rows are posted in batches so the page copies them in small steps instead of one long freeze.
 const ROWS_PER_MESSAGE = 5000
@@ -7,7 +7,7 @@ const ROWS_PER_MESSAGE = 5000
 //   { type: 'progress', message }          status text while parsing
 //   { type: 'rows', sheet, rows }           a batch of rows for sheet index `sheet`
 //   { type: 'done', sheets }                sheet metadata (rows: [] — reassembled from the batches)
-//   { type: 'error', message }              on failure
+//   { type: 'error', message, detail }      on failure
 self.onmessage = async ({ data: file }) => {
   try {
     const { sheets } = await parseExcel(file, (message) => self.postMessage({ type: 'progress', message }))
@@ -18,6 +18,12 @@ self.onmessage = async ({ data: file }) => {
     })
     self.postMessage({ type: 'done', sheets: sheets.map((sheet) => ({ ...sheet, rows: [] })) })
   } catch (err) {
-    self.postMessage({ type: 'error', message: err.message })
+    // Expected problems carry a user-facing message; anything else is a bug, so keep its stack as detail.
+    const expected = err instanceof ImportError
+    self.postMessage({
+      type: 'error',
+      message: expected ? err.message : 'Something went wrong while reading this file.',
+      detail: expected ? err.detail : (err?.stack ?? String(err)),
+    })
   }
 }
