@@ -6,6 +6,7 @@ React (Vite) app that reads an Excel file in the browser and shows it in a filte
 
 - npm run dev: start dev server
 - npm run build: production build
+- npm test: run the unit tests (Vitest); tests live next to the code as *.test.js
 
 ## Rules
 
