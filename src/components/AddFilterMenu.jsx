@@ -23,7 +23,11 @@ function AddFilterMenu({ columns, shownKeys, onAdd }) {
   }
 
   return (
-    <div className="popover-anchor add-filter" ref={ref}>
+    <div className="field popover-anchor add-filter" ref={ref}>
+      {/* Same label row as the filters so the button lines up with their controls. */}
+      <div className="field-head">
+        <span className="field-label">More filters</span>
+      </div>
       <button type="button" className="add-filter-button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <Icon name="filter" size={16} />
         Add filter

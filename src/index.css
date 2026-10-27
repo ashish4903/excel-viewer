@@ -221,6 +221,7 @@ p {
 
 .button {
   padding: 8px 16px;
+  white-space: nowrap;
   background: var(--accent);
   color: var(--accent-text);
   box-shadow: 0 6px 16px -8px var(--accent);
@@ -553,15 +554,17 @@ kbd {
   color: var(--muted);
 }
 
+/* minmax(0, …) and min-width: 0 stop wide controls (e.g. date inputs) from stretching the grid past the screen. */
 .filters {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 6px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -588,6 +591,13 @@ kbd {
   appearance: none;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* Every filter control is exactly the same height. */
+.field select,
+.field .text-input,
+.add-filter-button {
+  height: 42px;
 }
 
 .field select:hover,
@@ -641,12 +651,30 @@ kbd {
   background-color: var(--accent-soft);
 }
 
-/* "+ Add filter" tile in the filters grid */
-.add-filter {
-  display: flex;
-  align-items: flex-end;
+.field-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.field-hint {
+  display: inline-flex;
+  color: var(--muted);
+  cursor: help;
+}
+
+.field-error {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--error-text);
+  white-space: nowrap;
+}
+
+/* "+ Add filter" tile in the filters grid */
 .add-filter-button {
   display: inline-flex;
   align-items: center;
@@ -682,9 +710,10 @@ kbd {
 
 .range-inputs input {
   flex: 1;
+  width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 8px 12px;
+  height: 42px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -711,21 +740,20 @@ kbd {
   background-color: var(--accent-soft);
 }
 
-.range-inputs.invalid input {
+/* No spinner arrows: they squeeze the value and differ between browsers. */
+.range-inputs input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.range-inputs input[type='number']::-webkit-inner-spin-button,
+.range-inputs input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.field.invalid .range-inputs input {
   border-color: var(--error-text);
-}
-
-.field small {
-  margin-top: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--muted);
-}
-
-.field small.error-text {
-  color: var(--error-text);
 }
 
 .field.active select {
@@ -1501,12 +1529,9 @@ td.numeric {
     padding: 20px;
   }
 
+  /* Every filter is one cell; 260px fits two date inputs side by side. */
   .filters {
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  }
-
-  .range {
-    grid-column: span 2;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }
 
   .toolbar {

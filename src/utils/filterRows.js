@@ -22,6 +22,14 @@ export function isFilterActive(value) {
   return !isEmpty(value.min) || !isEmpty(value.max)
 }
 
+// True when a { min, max } range has both ends set and min is greater than max.
+export function isRangeInvalid(value, type = 'number') {
+  if (!value || typeof value !== 'object') return false
+  const min = type === 'date' ? value.min || null : toNumber(value.min)
+  const max = type === 'date' ? value.max || null : toNumber(value.max)
+  return min !== null && max !== null && min > max
+}
+
 export function getActiveFilters(filters) {
   return Object.entries(filters).filter(([, value]) => isFilterActive(value))
 }
