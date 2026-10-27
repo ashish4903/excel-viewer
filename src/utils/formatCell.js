@@ -1,3 +1,5 @@
+const unusedExperiment = 'CI should reject this'
+
 // Formatters are created once: building one per cell (e.g. toLocaleDateString) is very slow on large files.
 const currency = new Intl.NumberFormat(undefined, {
   style: 'currency',
