@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 
 // variant 'hero': large drag-and-drop zone; 'compact': header button (also accepts drops).
-function FileUpload({ onFile, loading, variant = 'hero' }) {
+// progress: status text from the parser while loading (e.g. "Preparing rows… 40%").
+function FileUpload({ onFile, loading, progress, variant = 'hero' }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
 
@@ -49,10 +50,11 @@ function FileUpload({ onFile, loading, variant = 'hero' }) {
           className={`button glass${dragging ? ' dragging' : ''}`}
           onClick={openPicker}
           disabled={loading}
+          title={loading ? progress : undefined}
           {...dropProps}
         >
           {loading ? <span className="spinner small" /> : <Icon name="upload" />}
-          <span className="hide-mobile">{loading ? 'Reading…' : 'Open file'}</span>
+          <span className="hide-mobile">{loading ? progress || 'Reading…' : 'Open file'}</span>
         </button>
         {input}
       </>
@@ -77,9 +79,13 @@ function FileUpload({ onFile, loading, variant = 'hero' }) {
       >
         <div className="dropzone-icon">{loading ? <span className="spinner" /> : <Icon name="upload" size={32} />}</div>
         <h2>{loading ? 'Reading your file…' : dragging ? 'Release to upload' : 'Drop your Excel file here'}</h2>
-        <p>
-          or <span className="link">browse your computer</span> · .xlsx files only
-        </p>
+        {loading ? (
+          <p aria-live="polite">{progress || 'Starting…'}</p>
+        ) : (
+          <p>
+            or <span className="link">browse your computer</span> · .xlsx files only
+          </p>
+        )}
       </div>
       {input}
     </>

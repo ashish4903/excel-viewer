@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import FileUpload from './components/FileUpload.jsx'
-import ThemeToggle from './components/ThemeToggle.jsx'
+import AppBar from './components/AppBar.jsx'
+import SheetTabs from './components/SheetTabs.jsx'
 import StatsBar from './components/StatsBar.jsx'
 import SearchBar from './components/SearchBar.jsx'
-import FilterDropdowns from './components/FilterDropdowns.jsx'
-import RangeFilters from './components/RangeFilters.jsx'
+import FilterControl from './components/FilterControl.jsx'
+import PairRangeFilter from './components/PairRangeFilter.jsx'
+import AddFilterMenu from './components/AddFilterMenu.jsx'
 import ActiveFilters from './components/ActiveFilters.jsx'
 import ColumnPicker from './components/ColumnPicker.jsx'
 import SortSelect from './components/SortSelect.jsx'
@@ -14,9 +16,9 @@ import Pagination from './components/Pagination.jsx'
 import RowDetail from './components/RowDetail.jsx'
 import StatusMessage from './components/StatusMessage.jsx'
 import Icon from './components/Icon.jsx'
-import { columns } from './config/columns.js'
-import { parseExcel } from './utils/parseExcel.js'
-import { filterRows, getActiveRanges, sortRows } from './utils/filterRows.js'
+import { parseInWorker } from './utils/parseInWorker.js'
+import { filterRows, getActiveFilters, sortRows } from './utils/filterRows.js'
+import { clearVisibleKeys, defaultVisibleKeys, loadVisibleKeys, saveVisibleKeys } from './utils/columnPrefs.js'
 import { exportCsv } from './utils/exportCsv.js'
 
 const PAGE_SIZE = 25
@@ -24,32 +26,53 @@ const NO_SORT = { key: null, direction: 'asc' }
 
 function App() {
   const [data, setData] = useState(null)
-  const [error, setError] = useState('')
+  const [sheetIndex, setSheetIndex] = useState(0)
+  const [error, setError] = useState(null) // { message, detail }
   const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState('')
   const [search, setSearch] = useState('')
+  // Keyed by column key (or "pair:<key>"); strings for list/text filters, { min, max } for ranges.
   const [filters, setFilters] = useState({})
-  const [ranges, setRanges] = useState({})
+  const [addedFilterKeys, setAddedFilterKeys] = useState([])
   const [sort, setSort] = useState(NO_SORT)
   const [page, setPage] = useState(1)
-  const [hiddenKeys, setHiddenKeys] = useState(() => new Set())
+  const [visibleKeys, setVisibleKeys] = useState(() => new Set())
   const [selectedRow, setSelectedRow] = useState(null)
+
+  const sheet = data?.sheets[sheetIndex]
+  const deferredSearch = useDeferredValue(search)
+
+  function resetView(nextSheet) {
+    setSearch('')
+    setFilters({})
+    setAddedFilterKeys([])
+    setSort(NO_SORT)
+    setPage(1)
+    setSelectedRow(null)
+    setVisibleKeys(loadVisibleKeys(nextSheet.columns))
+  }
 
   async function handleFile(file) {
     setLoading(true)
-    setError('')
+    setProgress('')
+    setError(null)
     try {
-      const result = await parseExcel(file)
+      const result = await parseInWorker(file, setProgress)
       setData({ ...result, fileName: file.name })
-      setSearch('')
-      setFilters({})
-      setRanges({})
-      setSort(NO_SORT)
-      setPage(1)
+      setSheetIndex(0)
+      resetView(result.sheets[0])
     } catch (err) {
-      setError(err.message)
+      // Logged so a failed import can be traced later from the browser console (F12).
+      console.error(`Excel import failed for "${file.name}" (${file.size.toLocaleString()} bytes): ${err.message}`, err.detail ?? '')
+      setError({ message: err.message, detail: err.detail })
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleSheetChange(index) {
+    setSheetIndex(index)
+    resetView(data.sheets[index])
   }
 
   function handleSearch(value) {
@@ -62,21 +85,23 @@ function App() {
     setPage(1)
   }
 
-  // bound: 'min' | 'max'; value: raw input text
-  function handleRange(key, bound, value) {
-    setRanges((current) => ({ ...current, [key]: { ...current[key], [bound]: value } }))
-    setPage(1)
+  function addFilter(key) {
+    setAddedFilterKeys((current) => [...current, key])
   }
 
-  function removeRange(key) {
-    setRanges((current) => ({ ...current, [key]: {} }))
+  function removeAddedFilter(key) {
+    setAddedFilterKeys((current) => current.filter((k) => k !== key))
+    setFilters((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
     setPage(1)
   }
 
   function clearAll() {
     setSearch('')
     setFilters({})
-    setRanges({})
     setPage(1)
   }
 
@@ -94,151 +119,185 @@ function App() {
     setPage(1)
   }
 
+  function updateVisible(next) {
+    setVisibleKeys(next)
+    saveVisibleKeys(sheet.columns, next)
+  }
+
   function toggleColumn(key) {
-    setHiddenKeys((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+    const next = new Set(visibleKeys)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    updateVisible(next)
+  }
+
+  function resetColumns() {
+    clearVisibleKeys(sheet.columns)
+    setVisibleKeys(defaultVisibleKeys(sheet.columns))
   }
 
   const closeDetail = useCallback(() => setSelectedRow(null), [])
 
-  const rows = data?.rows
+  const columns = sheet?.columns
+  const rows = sheet?.rows
+  const pairRanges = sheet?.pairRanges
   const filtered = useMemo(
-    () => filterRows(rows ?? [], search, filters, ranges),
-    [rows, search, filters, ranges],
+    () => (rows ? filterRows(rows, { columns, pairRanges, search: deferredSearch, filters }) : []),
+    [rows, columns, pairRanges, deferredSearch, filters],
   )
-  const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort])
-  const visibleColumns = useMemo(() => columns.filter((c) => !hiddenKeys.has(c.key)), [hiddenKeys])
+  const sorted = useMemo(() => (columns ? sortRows(filtered, sort, columns) : filtered), [filtered, sort, columns])
+  const visibleColumns = useMemo(() => (columns ?? []).filter((c) => visibleKeys.has(c.key)), [columns, visibleKeys])
 
+  if (!sheet) {
+    return (
+      <div className="app">
+        <AppBar />
+        <main className="content">
+          {error && (
+            <StatusMessage kind="error" detail={error.detail}>
+              {error.message}
+            </StatusMessage>
+          )}
+          <FileUpload variant="hero" onFile={handleFile} loading={loading} progress={progress} />
+        </main>
+      </div>
+    )
+  }
+
+  const columnsByKey = new Map(columns.map((c) => [c.key, c]))
+  const titleColumn = columnsByKey.get(sheet.titleKey)
+  const shownFilterKeys = [...sheet.suggestedFilterKeys, ...addedFilterKeys]
   const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, pageCount)
   const pageRows = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-  const animationKey = `${currentPage}-${sort.key}-${sort.direction}`
-  const activeFilterCount = Object.values(filters).filter(Boolean).length + getActiveRanges(ranges).length
+  const animationKey = `${sheetIndex}-${currentPage}-${sort.key}-${sort.direction}`
 
   function handleExport() {
     const baseName = data.fileName.replace(/\.xlsx$/i, '')
-    exportCsv(sorted, visibleColumns, `${baseName}-filtered.csv`)
+    const sheetPart = data.sheets.length > 1 ? `-${sheet.name}` : ''
+    exportCsv(sorted, visibleColumns, `${baseName}${sheetPart}-filtered.csv`)
   }
 
   return (
     <div className="app">
-      <header className="app-bar">
-        <div className="app-bar-inner">
-          <div className="brand">
-            <span className="brand-mark">
-              <Icon name="sheet" size={22} />
-            </span>
-            <div>
-              <h1>Excel Viewer</h1>
-              <p>{data ? data.fileName : 'Explore your spreadsheets right in the browser'}</p>
-            </div>
-          </div>
-          <div className="app-bar-actions">
-            {data && <FileUpload variant="compact" onFile={handleFile} loading={loading} />}
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
+      <AppBar
+        subtitle={data.sheets.length > 1 ? `${data.fileName} · ${sheet.name}` : data.fileName}
+        actions={<FileUpload variant="compact" onFile={handleFile} loading={loading} progress={progress} />}
+      />
 
       <main className="content">
-        {error && <StatusMessage kind="error">{error}</StatusMessage>}
+        {error && (
+            <StatusMessage kind="error" detail={error.detail}>
+              {error.message}
+            </StatusMessage>
+          )}
 
-        {!data && <FileUpload variant="hero" onFile={handleFile} loading={loading} />}
+        <SheetTabs sheets={data.sheets} active={sheetIndex} onChange={handleSheetChange} />
 
-        {data && (
-          <>
-            {data.missingColumns.length > 0 && (
-              <StatusMessage kind="warning">
-                These columns were not found in the file and will be blank: {data.missingColumns.join(', ')}
-              </StatusMessage>
-            )}
+        <StatsBar
+          total={rows.length}
+          matching={sorted.length}
+          visibleColumns={visibleColumns.length}
+          totalColumns={columns.length}
+          activeFilters={getActiveFilters(filters).length}
+        />
 
-            <StatsBar
-              total={data.rows.length}
-              matching={sorted.length}
-              visibleColumns={visibleColumns.length}
-              totalColumns={columns.length}
-              activeFilters={activeFilterCount}
+        <section className="panel controls" aria-label="Search and filters">
+          <SearchBar value={search} onChange={handleSearch} />
+          <div className="filters">
+            {shownFilterKeys.map((key) => (
+              <FilterControl
+                key={key}
+                column={columnsByKey.get(key)}
+                rows={rows}
+                value={filters[key]}
+                onChange={(value) => handleFilter(key, value)}
+                onRemove={addedFilterKeys.includes(key) ? () => removeAddedFilter(key) : undefined}
+              />
+            ))}
+            {pairRanges.map((pair) => (
+              <PairRangeFilter
+                key={pair.key}
+                pair={pair}
+                rows={rows}
+                value={filters[pair.key]}
+                onChange={(value) => handleFilter(pair.key, value)}
+              />
+            ))}
+            <AddFilterMenu columns={columns} shownKeys={new Set(shownFilterKeys)} onAdd={addFilter} />
+          </div>
+          <div className="toolbar">
+            <ActiveFilters
+              search={search}
+              filters={filters}
+              columns={columns}
+              pairRanges={pairRanges}
+              onClearSearch={() => handleSearch('')}
+              onRemoveFilter={(key) => handleFilter(key, '')}
+              onClearAll={clearAll}
             />
+            <div className="toolbar-actions">
+              <SortSelect columns={visibleColumns} sort={sort} onChange={handleSortChange} />
+              <ColumnPicker
+                columns={columns}
+                visibleKeys={visibleKeys}
+                onToggle={toggleColumn}
+                onShowAll={() => updateVisible(new Set(columns.filter((c) => !c.empty).map((c) => c.key)))}
+                onHideAll={() => updateVisible(new Set([sheet.titleKey]))}
+                onReset={resetColumns}
+              />
+              <button type="button" className="button" onClick={handleExport} disabled={sorted.length === 0}>
+                <Icon name="download" />
+                Export CSV
+              </button>
+            </div>
+          </div>
+        </section>
 
-            <section className="panel controls" aria-label="Search and filters">
-              <SearchBar value={search} onChange={handleSearch} />
-              <div className="filters">
-                <FilterDropdowns rows={data.rows} filters={filters} onChange={handleFilter} />
-                <RangeFilters rows={data.rows} ranges={ranges} onChange={handleRange} />
-              </div>
-              <div className="toolbar">
-                <ActiveFilters
-                  search={search}
-                  filters={filters}
-                  ranges={ranges}
-                  onClearSearch={() => handleSearch('')}
-                  onRemoveFilter={(key) => handleFilter(key, '')}
-                  onRemoveRange={removeRange}
-                  onClearAll={clearAll}
-                />
-                <div className="toolbar-actions">
-                  <SortSelect sort={sort} onChange={handleSortChange} />
-                  <ColumnPicker
-                    hiddenKeys={hiddenKeys}
-                    onToggle={toggleColumn}
-                    onShowAll={() => setHiddenKeys(new Set())}
-                  />
-                  <button type="button" className="button" onClick={handleExport} disabled={sorted.length === 0}>
-                    <Icon name="download" />
-                    Export CSV
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            {sorted.length === 0 ? (
-              <div className="panel empty-state">
-                <span className="empty-icon">
-                  <Icon name="search" size={28} />
-                </span>
-                <h2>No matching rows</h2>
-                <p>Try a different search term or remove some filters.</p>
-                <button type="button" className="button secondary" onClick={clearAll}>
-                  Clear search and filters
-                </button>
-              </div>
-            ) : (
-              <section className="panel results" aria-label="Results">
-                <DataTable
-                  rows={pageRows}
-                  columns={visibleColumns}
-                  sort={sort}
-                  onSort={handleSort}
-                  onSelect={setSelectedRow}
-                  query={search}
-                  animationKey={animationKey}
-                />
-                <DataCards
-                  rows={pageRows}
-                  columns={visibleColumns}
-                  onSelect={setSelectedRow}
-                  query={search}
-                  animationKey={animationKey}
-                />
-                <Pagination
-                  page={currentPage}
-                  pageCount={pageCount}
-                  pageSize={PAGE_SIZE}
-                  total={sorted.length}
-                  onChange={setPage}
-                />
-              </section>
-            )}
-          </>
+        {sorted.length === 0 ? (
+          <div className="panel empty-state">
+            <span className="empty-icon">
+              <Icon name="search" size={28} />
+            </span>
+            <h2>No matching rows</h2>
+            <p>Try a different search term or remove some filters.</p>
+            <button type="button" className="button secondary" onClick={clearAll}>
+              Clear search and filters
+            </button>
+          </div>
+        ) : (
+          <section className="panel results" aria-label="Results">
+            <DataTable
+              rows={pageRows}
+              columns={visibleColumns}
+              sort={sort}
+              onSort={handleSort}
+              onSelect={setSelectedRow}
+              query={deferredSearch}
+              animationKey={animationKey}
+            />
+            <DataCards
+              rows={pageRows}
+              columns={visibleColumns}
+              titleColumn={titleColumn}
+              onSelect={setSelectedRow}
+              query={deferredSearch}
+              animationKey={animationKey}
+            />
+            <Pagination
+              page={currentPage}
+              pageCount={pageCount}
+              pageSize={PAGE_SIZE}
+              total={sorted.length}
+              onChange={setPage}
+            />
+          </section>
         )}
       </main>
 
-      {selectedRow && <RowDetail row={selectedRow} onClose={closeDetail} />}
+      {selectedRow && (
+        <RowDetail row={selectedRow} columns={columns} titleColumn={titleColumn} onClose={closeDetail} />
+      )}
     </div>
   )
 }

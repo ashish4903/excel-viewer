@@ -5,7 +5,7 @@ export function exportCsv(rows, columns, fileName) {
   const escape = (value) => `"${String(value).replace(/"/g, '""')}"`
   const lines = [
     columns.map((c) => escape(c.label)).join(','),
-    ...rows.map((row) => columns.map((c) => escape(formatCell(row[c.key], c.type))).join(',')),
+    ...rows.map((row) => columns.map((c) => escape(formatCell(row[c.index], c.type))).join(',')),
   ]
   // BOM so Excel opens the file as UTF-8.
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })

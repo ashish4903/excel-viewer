@@ -1,22 +1,31 @@
-import { columns } from '../config/columns.js'
 import { formatCell } from '../utils/formatCell.js'
-import { getActiveRanges } from '../utils/filterRows.js'
+import { getActiveFilters, toNumber } from '../utils/filterRows.js'
 import Icon from './Icon.jsx'
 
-const labelByKey = Object.fromEntries(columns.map((c) => [c.key, c.label]))
-const typeByKey = Object.fromEntries(columns.map((c) => [c.key, c.type]))
-
-function describeRange(range) {
-  const format = (value) => formatCell(value, typeByKey[range.fromKey])
-  if (range.min !== null && range.max !== null) return `${format(range.min)} – ${format(range.max)}`
-  if (range.min !== null) return `≥ ${format(range.min)}`
-  return `≤ ${format(range.max)}`
+function describe(value, kind, type) {
+  if (kind === 'select') return value
+  if (kind === 'contains') return `contains “${value}”`
+  const format =
+    kind === 'dateRange' ? (v) => formatCell(new Date(`${v}T00:00:00Z`), 'date') : (v) => formatCell(toNumber(v), type)
+  const hasMin = value.min !== undefined && value.min !== ''
+  const hasMax = value.max !== undefined && value.max !== ''
+  if (hasMin && hasMax) return `${format(value.min)} – ${format(value.max)}`
+  if (hasMin) return `≥ ${format(value.min)}`
+  return `≤ ${format(value.max)}`
 }
 
-function ActiveFilters({ search, filters, ranges, onClearSearch, onRemoveFilter, onRemoveRange, onClearAll }) {
-  const active = Object.entries(filters).filter(([, value]) => value !== '')
-  const activeRanges = getActiveRanges(ranges)
-  if (!search && active.length === 0 && activeRanges.length === 0) return null
+function ActiveFilters({ search, filters, columns, pairRanges, onClearSearch, onRemoveFilter, onClearAll }) {
+  const columnsByKey = new Map(columns.map((c) => [c.key, c]))
+  const chips = getActiveFilters(filters)
+    .map(([key, value]) => {
+      const pair = pairRanges.find((p) => p.key === key)
+      if (pair) return { key, label: pair.label, text: describe(value, 'numberRange', pair.type) }
+      const column = columnsByKey.get(key)
+      return column && { key, label: column.label, text: describe(value, column.filterKind, column.type) }
+    })
+    .filter(Boolean)
+
+  if (!search && chips.length === 0) return null
 
   return (
     <div className="chips" aria-label="Active filters">
@@ -26,15 +35,9 @@ function ActiveFilters({ search, filters, ranges, onClearSearch, onRemoveFilter,
           <Icon name="x" size={14} />
         </button>
       )}
-      {active.map(([key, value]) => (
-        <button key={key} type="button" className="chip" onClick={() => onRemoveFilter(key)}>
-          <span className="chip-label">{labelByKey[key]}</span> {value}
-          <Icon name="x" size={14} />
-        </button>
-      ))}
-      {activeRanges.map((range) => (
-        <button key={range.key} type="button" className="chip" onClick={() => onRemoveRange(range.key)}>
-          <span className="chip-label">{range.label}</span> {describeRange(range)}
+      {chips.map((chip) => (
+        <button key={chip.key} type="button" className="chip" onClick={() => onRemoveFilter(chip.key)}>
+          <span className="chip-label">{chip.label}</span> {chip.text}
           <Icon name="x" size={14} />
         </button>
       ))}

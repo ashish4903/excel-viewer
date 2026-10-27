@@ -1,8 +1,7 @@
-import { columns } from '../config/columns.js'
 import Icon from './Icon.jsx'
 
 // Sort control for the card layout, where there are no column headers to click.
-function SortSelect({ sort, onChange }) {
+function SortSelect({ columns, sort, onChange }) {
   return (
     <div className="sort-select">
       <select

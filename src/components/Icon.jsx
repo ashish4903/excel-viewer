@@ -55,6 +55,12 @@ const paths = {
       <path d="M12 8v5M12 16h.01" />
     </>
   ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
+    </>
+  ),
   rows: <path d="M4 6h16M4 12h16M4 18h16" />,
   sort: <path d="m8 9 4-4 4 4M8 15l4 4 4-4" />,
   arrowUp: <path d="m6 14 6-6 6 6" />,

@@ -4,26 +4,26 @@ import Icon from './Icon.jsx'
 
 const PREVIEW_FIELDS = 5
 
-// The first visible column is the card title; badge columns sit beside it.
-// Up to PREVIEW_FIELDS other non-empty fields are previewed; the rest open in the detail panel.
-function DataCards({ rows, columns, onSelect, query, animationKey }) {
-  const [titleColumn, ...rest] = columns
+// titleColumn heads each card (even if hidden in the table); visible badge columns sit beside it.
+// Up to PREVIEW_FIELDS other non-empty visible fields are previewed; the rest open in the detail panel.
+function DataCards({ rows, columns, titleColumn, onSelect, query, animationKey }) {
+  const rest = columns.filter((c) => c.key !== titleColumn.key)
   const badgeColumns = rest.filter((c) => c.display === 'badge')
   const fieldColumns = rest.filter((c) => c.display !== 'badge')
 
   return (
     <ul className="cards" key={animationKey}>
       {rows.map((row, i) => {
-        const preview = fieldColumns.filter((c) => formatCell(row[c.key], c.type)).slice(0, PREVIEW_FIELDS)
+        const preview = fieldColumns.filter((c) => formatCell(row[c.index], c.type)).slice(0, PREVIEW_FIELDS)
         return (
           <li key={i} style={{ '--i': i }}>
             <button type="button" className="card" onClick={() => onSelect(row)}>
               <div className="card-header">
                 <h3>
-                  <CellValue value={row[titleColumn.key]} column={titleColumn} query={query} />
+                  <CellValue value={row[titleColumn.index]} column={titleColumn} query={query} />
                 </h3>
                 {badgeColumns.map((c) => (
-                  <CellValue key={c.key} value={row[c.key]} column={c} query={query} />
+                  <CellValue key={c.key} value={row[c.index]} column={c} query={query} />
                 ))}
               </div>
               <dl>
@@ -31,7 +31,7 @@ function DataCards({ rows, columns, onSelect, query, animationKey }) {
                   <div key={c.key}>
                     <dt>{c.label}</dt>
                     <dd>
-                      <CellValue value={row[c.key]} column={c} query={query} />
+                      <CellValue value={row[c.index]} column={c} query={query} />
                     </dd>
                   </div>
                 ))}
