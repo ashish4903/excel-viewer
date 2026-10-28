@@ -28,7 +28,7 @@ function AddFilterMenu({ columns, shownKeys, onAdd }) {
       <div className="field-head">
         <span className="field-label">More filters</span>
       </div>
-      <button type="button" className="add-filter-button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+      <button type="button" className="add-filter-button" onClick={() => setOpen((value) => !value)} aria-haspopup="dialog" aria-expanded={open}>
         <Icon name="filter" size={16} />
         Add filter
       </button>
