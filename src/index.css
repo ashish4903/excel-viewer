@@ -193,6 +193,41 @@ p {
   gap: 16px;
 }
 
+.app-footer {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* Each part stays on one line; parts wrap as a whole, separated by a dot. */
+.app-footer > span {
+  white-space: nowrap;
+}
+
+.app-footer > span + span::before {
+  content: '·';
+  margin: 0 8px;
+}
+
+.app-footer a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.app-footer a:hover {
+  color: var(--text);
+}
+
+.app-footer code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 /* Entrance animations use `backwards` fill so no transform (and stacking context) remains afterwards. */
 .panel {
   background: var(--surface);
