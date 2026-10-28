@@ -19,9 +19,9 @@ function DataCards({ rows, columns, titleColumn, onSelect, query, animationKey }
           <li key={i} style={{ '--i': i }}>
             <button type="button" className="card" onClick={() => onSelect(row)}>
               <div className="card-header">
-                <h3>
+                <h2>
                   <CellValue value={row[titleColumn.index]} column={titleColumn} query={query} />
-                </h3>
+                </h2>
                 {badgeColumns.map((c) => (
                   <CellValue key={c.key} value={row[c.index]} column={c} query={query} />
                 ))}

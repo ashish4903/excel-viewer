@@ -51,6 +51,8 @@ function FileUpload({ onFile, loading, progress, variant = 'hero' }) {
           onClick={openPicker}
           disabled={loading}
           title={loading ? progress : undefined}
+          // The text is hidden on phones, so the button still needs a name for screen readers.
+          aria-label={loading ? progress || 'Reading…' : 'Open another file'}
           {...dropProps}
         >
           {loading ? <span className="spinner small" /> : <Icon name="upload" />}

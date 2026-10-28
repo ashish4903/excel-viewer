@@ -5,6 +5,7 @@ function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey 
   return (
     <div className="table-wrap">
       <table>
+        <caption className="sr-only">Results. Column buttons sort the table; press Enter or Space on a row to see all its details.</caption>
         <thead>
           <tr>
             {columns.map((c) => {
@@ -33,7 +34,12 @@ function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey 
               tabIndex={0}
               style={{ '--i': i }}
               onClick={() => onSelect(row)}
-              onKeyDown={(event) => event.key === 'Enter' && onSelect(row)}
+              onKeyDown={(event) => {
+                if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault()
+                  onSelect(row)
+                }
+              }}
             >
               {columns.map((c) => (
                 <td key={c.key} className={c.type === 'currency' || c.type === 'number' ? 'numeric' : undefined}>

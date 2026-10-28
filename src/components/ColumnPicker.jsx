@@ -38,6 +38,7 @@ function ColumnPicker({ columns, visibleKeys, onToggle, onShowAll, onHideAll, on
         type="button"
         className="button secondary"
         onClick={() => setOpen((value) => !value)}
+        aria-haspopup="dialog"
         aria-expanded={open}
       >
         <Icon name="columns" />

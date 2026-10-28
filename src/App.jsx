@@ -196,6 +196,11 @@ function App() {
 
         <SheetTabs sheets={data.sheets} active={sheetIndex} onChange={handleSheetChange} />
 
+        {/* Tells screen-reader users how many rows match after each search or filter change. */}
+        <p className="sr-only" aria-live="polite">
+          {sorted.length.toLocaleString()} of {rows.length.toLocaleString()} rows match
+        </p>
+
         <StatsBar
           total={rows.length}
           matching={sorted.length}
