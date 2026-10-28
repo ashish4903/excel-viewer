@@ -50,6 +50,7 @@ Then open the address shown in the terminal (usually http://localhost:5173).
 ```
 src/
 ├── App.jsx                 page layout and state
+├── App.test.jsx            screen tests: upload, search, filters, sorting, columns, keyboard
 ├── components/             one small component per file (table, cards, filters, …)
 ├── config/columns.js       optional per-header labels, types and filters
 ├── utils/
