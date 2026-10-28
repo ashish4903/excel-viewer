@@ -1,0 +1,24 @@
+# Dependabot opens pull requests when dependencies have updates or security fixes.
+# CI tests each one before it can be merged.
+version: 2
+updates:
+  # npm packages (package.json / package-lock.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Minor and patch updates arrive together in one PR; major updates get their own PR.
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Actions used in .github/workflows (checkout, setup-node, Pages)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
