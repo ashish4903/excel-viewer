@@ -1,5 +1,5 @@
-# Lints, tests and builds the app on every push and pull request,
-# and deploys it to GitHub Pages on every push to main.
+# Lints, tests and builds the app and checks dependencies for known vulnerabilities
+# on every push and pull request, and deploys it to GitHub Pages on every push to main.
 name: CI
 
 on:
@@ -33,6 +33,21 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  # Fails when a dependency has a known high or critical vulnerability.
+  # Kept separate from build and not a required check: a new advisory can appear any day,
+  # and it shouldn't block unrelated pull requests. Dependabot opens the fix PRs.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: npm audit --audit-level=high
 
   deploy:
     needs: build

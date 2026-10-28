@@ -78,7 +78,7 @@ Files without those headers are unaffected.
 `main` is protected, so every change goes through a pull request:
 
 1. Create a branch, commit and push, then open a pull request.
-2. **CI** (GitHub Actions) installs dependencies, then runs lint, tests and the production build. The pull request can only be merged when this passes.
+2. **CI** (GitHub Actions) installs dependencies, then runs lint, tests and the production build. The pull request can only be merged when this passes. A separate **audit** check warns if a dependency has a known security vulnerability.
 3. Merging into `main` runs CI again and then **deploys** the build to GitHub Pages, usually within a minute.
 
 The workflow is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
