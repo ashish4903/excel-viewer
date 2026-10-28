@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import FileUpload from './components/FileUpload.jsx'
 import AppBar from './components/AppBar.jsx'
+import AppFooter from './components/AppFooter.jsx'
 import SheetTabs from './components/SheetTabs.jsx'
 import StatsBar from './components/StatsBar.jsx'
 import SearchBar from './components/SearchBar.jsx'
@@ -160,6 +161,7 @@ function App() {
           )}
           <FileUpload variant="hero" onFile={handleFile} loading={loading} progress={progress} />
         </main>
+        <AppFooter />
       </div>
     )
   }
@@ -294,6 +296,7 @@ function App() {
           </section>
         )}
       </main>
+      <AppFooter />
 
       {selectedRow && (
         <RowDetail row={selectedRow} columns={columns} titleColumn={titleColumn} onClose={closeDetail} />
