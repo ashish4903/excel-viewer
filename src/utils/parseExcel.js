@@ -1,11 +1,16 @@
-// Runs inside a Web Worker (src/workers/parseExcel.worker.js), so it uses the worker build.
-import readXlsxFile from 'read-excel-file/web-worker'
+// Runs inside a Web Worker (src/workers/parseExcel.worker.js).
+// Reads .xlsx files directly: an .xlsx is a zip of XML parts, which are unzipped with the browser's
+// built-in DecompressionStream and scanned as text. No library: this is several times faster than
+// a general XML parser on large sheets, and parts are read in chunks so huge sheets never need to be
+// held as one string.
 import { rangeFilters, SUGGESTED_FILTERS } from '../config/columns.js'
 import { detectColumns, uniqueHeaders } from './detectColumns.js'
 import { formatCell } from './formatCell.js'
 
 const isEmpty = (cell) => cell === null || cell === undefined || cell === ''
 const PROGRESS_EVERY = 5000
+// Formatted search text is cached per column for repeated numbers and dates, up to this many values.
+const FORMAT_CACHE_LIMIT = 10000
 
 // A failure with a user-facing message plus technical detail (shown under "Technical details" and logged).
 export class ImportError extends Error {
@@ -15,6 +20,8 @@ export class ImportError extends Error {
     this.detail = detail
   }
 }
+
+const UNREADABLE = 'Could not read this workbook. It may be damaged; try opening it in Excel and saving it again.'
 
 // .xlsx files are zip archives; password-protected .xlsx and old .xls files are OLE compound files.
 const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04]
@@ -39,6 +46,376 @@ async function checkSignature(file) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Zip
+
+// Lists the zip's files from its central directory: Map of lowercase name -> entry.
+async function readZipDirectory(file) {
+  const tailSize = Math.min(file.size, 22 + 0xffff)
+  const tail = new DataView(await file.slice(file.size - tailSize).arrayBuffer())
+  let end = tailSize - 22
+  while (end >= 0 && tail.getUint32(end, true) !== 0x06054b50) end--
+  if (end < 0) throw new ImportError(UNREADABLE, 'The zip directory (end-of-central-directory record) is missing.')
+
+  const count = tail.getUint16(end + 10, true)
+  const size = tail.getUint32(end + 12, true)
+  const offset = tail.getUint32(end + 16, true)
+  if (count === 0xffff || offset === 0xffffffff) {
+    throw new ImportError('This workbook is too large to open here.', 'The file uses ZIP64, which is not supported.')
+  }
+  const dir = new DataView(await file.slice(offset, offset + size).arrayBuffer())
+  const decoder = new TextDecoder()
+  const entries = new Map()
+  for (let p = 0, i = 0; i < count; i++) {
+    if (dir.getUint32(p, true) !== 0x02014b50) throw new ImportError(UNREADABLE, `Zip directory entry ${i} is damaged.`)
+    const nameLength = dir.getUint16(p + 28, true)
+    const name = decoder.decode(new Uint8Array(dir.buffer, p + 46, nameLength))
+    entries.set(name.toLowerCase(), {
+      name,
+      method: dir.getUint16(p + 10, true),
+      compressedSize: dir.getUint32(p + 20, true),
+      size: dir.getUint32(p + 24, true),
+      offset: dir.getUint32(p + 42, true),
+    })
+    p += 46 + nameLength + dir.getUint16(p + 30, true) + dir.getUint16(p + 32, true)
+  }
+  return entries
+}
+
+// Calls onChunk(text, fraction) with an entry's decompressed text, chunk by chunk.
+async function readEntry(file, entry, onChunk) {
+  const header = new DataView(await file.slice(entry.offset, entry.offset + 30).arrayBuffer())
+  if (header.getUint32(0, true) !== 0x04034b50) throw new ImportError(UNREADABLE, `Zip entry ${entry.name} is damaged.`)
+  const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true)
+  const bytes = await file.slice(start, start + entry.compressedSize).arrayBuffer()
+  let stream = new Response(bytes).body
+  if (entry.method === 8) stream = stream.pipeThrough(new DecompressionStream('deflate-raw'))
+  else if (entry.method !== 0) throw new ImportError(UNREADABLE, `${entry.name} uses unsupported zip compression (method ${entry.method}).`)
+
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader()
+  let read = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return
+    read += value.length
+    onChunk(value, entry.size ? Math.min(read / entry.size, 1) : 0)
+  }
+}
+
+async function readEntryText(file, entry) {
+  let text = ''
+  await readEntry(file, entry, (chunk) => (text += chunk))
+  return text
+}
+
+// Last index in text where a `<child` start tag begins, or -1.
+function lastStartTag(text, open) {
+  for (let i = text.lastIndexOf(open); i !== -1; i = i > 0 ? text.lastIndexOf(open, i - 1) : -1) {
+    const after = i + open.length
+    if (after < text.length && endsName(text.charCodeAt(after))) return i
+  }
+  return -1
+}
+
+// Streams an entry and calls onPart(xml, prefix) with pieces that each end right before a `<child`
+// start tag, so every element in a piece is complete. prefix is the XML namespace prefix the file
+// uses (usually '', sometimes 'x:'), detected from the root element.
+// Only each new chunk (plus a few carried-over characters) is searched, and text without a cut
+// point is kept as a list of chunks, so long stretches without one stay linear.
+async function readEntryInParts(file, entry, root, child, onPart, onProgress) {
+  let head = '' // text before the root element has been found
+  let open = null
+  let prefix = ''
+  let pending = [] // text not handed on yet
+  let tail = '' // its last characters, to find a start tag split across chunks
+  await readEntry(file, entry, (chunk, fraction) => {
+    if (open === null) {
+      head += chunk
+      const match = new RegExp(`<(\\w+:)?${root}[\\s>]`).exec(head)
+      if (!match) return
+      prefix = match[1] ?? ''
+      open = `<${prefix}${child}`
+      chunk = head
+      head = ''
+    }
+    const region = tail + chunk
+    const at = lastStartTag(region, open)
+    if (at === -1) {
+      pending.push(chunk)
+      tail = region.slice(-open.length)
+      return
+    }
+    const text = pending.join('') + chunk
+    const cut = text.length - region.length + at
+    if (cut > 0) onPart(text.slice(0, cut), prefix)
+    const rest = text.slice(cut)
+    pending = [rest]
+    tail = rest.slice(-open.length)
+    onProgress?.(fraction)
+  })
+  const rest = head || pending.join('')
+  if (rest) onPart(rest, prefix)
+}
+
+// ---------------------------------------------------------------------------------------------
+// XML helpers (the parts Excel writes are regular, so string scanning is enough)
+
+const ENTITIES = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" }
+
+function decode(text) {
+  if (text.includes('&')) {
+    text = text.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (whole, name) => {
+      if (name[0] !== '#') return ENTITIES[name] ?? whole
+      return String.fromCodePoint(name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : Number(name.slice(1)))
+    })
+  }
+  // Excel escapes some characters as _xHHHH_ (e.g. _x000D_ for a carriage return).
+  if (text.includes('_x')) text = text.replace(/_x([0-9a-fA-F]{4})_/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+  return text
+}
+
+// Value of attribute `name` in a start tag's text, or null.
+function attr(tag, name) {
+  const at = tag.indexOf(` ${name}=`)
+  if (at === -1) return null
+  const quote = tag[at + name.length + 2]
+  const start = at + name.length + 3
+  return tag.slice(start, tag.indexOf(quote, start))
+}
+
+// True if the character after a tag name ends the name (so `<c` does not match `<col`).
+const endsName = (code) => code === 32 || code === 62 || code === 47 || code === 9 || code === 10 || code === 13
+
+// Start tags `<name ...>` in xml, in order, as their full text (any namespace prefix).
+const startTags = (xml, name) => xml.match(new RegExp(`<(?:\\w+:)?${name}[\\s/>][^>]*>`, 'g')) ?? []
+
+// Concatenated text of all <t> elements in a string item or inline string, skipping phonetic runs.
+function textOf(xml, p) {
+  const phonetic = `<${p}rPh`
+  if (xml.includes(phonetic)) xml = xml.replace(new RegExp(`<${p}rPh[\\s\\S]*?</${p}rPh>`, 'g'), '')
+  const open = `<${p}t`
+  const close = `</${p}t>`
+  let text = ''
+  for (let i = xml.indexOf(open); i !== -1; i = xml.indexOf(open, i)) {
+    const tagEnd = xml.indexOf('>', i)
+    if (!endsName(xml.charCodeAt(i + open.length)) || xml.charCodeAt(tagEnd - 1) === 47) {
+      i = tagEnd + 1
+      continue
+    }
+    const end = xml.indexOf(close, tagEnd)
+    text += xml.slice(tagEnd + 1, end)
+    i = end + close.length
+  }
+  return decode(text)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Workbook parts
+
+// Resolves a relationship target against the folder of the part that refers to it.
+function resolvePath(base, target) {
+  const parts = target.startsWith('/') ? [] : base.split('/').slice(0, -1)
+  for (const piece of target.replace(/^\//, '').split('/')) {
+    if (piece === '..') parts.pop()
+    else if (piece !== '.') parts.push(piece)
+  }
+  return parts.join('/')
+}
+
+async function readRelationships(file, entries, partPath) {
+  const slash = partPath.lastIndexOf('/')
+  const relsPath = `${partPath.slice(0, slash + 1)}_rels/${partPath.slice(slash + 1)}.rels`
+  const entry = entries.get(relsPath.toLowerCase())
+  const rels = new Map()
+  if (!entry) return rels
+  for (const tag of startTags(await readEntryText(file, entry), 'Relationship')) {
+    rels.set(attr(tag, 'Id'), { type: attr(tag, 'Type') ?? '', target: resolvePath(partPath, decode(attr(tag, 'Target') ?? '')) })
+  }
+  return rels
+}
+
+// Built-in number formats that show dates or times.
+const isBuiltInDateFormat = (id) => (id >= 14 && id <= 22) || (id >= 27 && id <= 36) || (id >= 45 && id <= 47) || (id >= 50 && id <= 58)
+
+// A custom format shows a date or time if it has d, m, y, h or s outside quoted text, escapes and [..] codes.
+function isDateFormatCode(code) {
+  const cleaned = code.replace(/"[^"]*"/g, '').replace(/\\.|_.|\*./g, '').replace(/\[[^\]]*\]/g, '')
+  return /[dmyhs]/i.test(cleaned)
+}
+
+// Indexes of cell styles (the `s` attribute) whose number format is a date.
+async function readDateStyles(file, entries, path) {
+  const entry = path && entries.get(path.toLowerCase())
+  const dateStyles = new Set()
+  if (!entry) return dateStyles
+  const xml = await readEntryText(file, entry)
+  const customFormats = new Map(startTags(xml, 'numFmt').map((tag) => [Number(attr(tag, 'numFmtId')), decode(attr(tag, 'formatCode') ?? '')]))
+  const cellXfs = /<(?:\w+:)?cellXfs[\s>][\s\S]*?<\/(?:\w+:)?cellXfs>/.exec(xml)?.[0] ?? ''
+  startTags(cellXfs, 'xf').forEach((tag, index) => {
+    const id = Number(attr(tag, 'numFmtId') ?? 0)
+    const code = customFormats.get(id)
+    if (code === undefined ? isBuiltInDateFormat(id) : isDateFormatCode(code)) dateStyles.add(index)
+  })
+  return dateStyles
+}
+
+async function readSharedStrings(file, entries, path, onProgress) {
+  const entry = path && entries.get(path.toLowerCase())
+  const strings = []
+  if (!entry) return strings
+  await readEntryInParts(file, entry, 'sst', 'si', (xml, p) => {
+    const open = `<${p}si`
+    const close = `</${p}si>`
+    for (let i = xml.indexOf(open); i !== -1; i = xml.indexOf(open, i)) {
+      const tagEnd = xml.indexOf('>', i)
+      if (!endsName(xml.charCodeAt(i + open.length))) {
+        i = tagEnd + 1
+      } else if (xml.charCodeAt(tagEnd - 1) === 47) {
+        strings.push('')
+        i = tagEnd + 1
+      } else {
+        const end = xml.indexOf(close, tagEnd)
+        strings.push(textOf(xml.slice(tagEnd + 1, end), p).trim())
+        i = end + close.length
+      }
+    }
+  }, onProgress)
+  return strings
+}
+
+// Excel stores dates as days since 1899-12-30 (or since 1904-01-01 in the 1904 date system).
+// Excel also counts 1900-02-29, which never existed, so dates before it (serials 1-59) are one day
+// later. Times alone (serials below 1) keep 1899-12-30 as their date.
+const DAY_MS = 86400000
+function excelDate(serial, date1904) {
+  const days = date1904 ? serial + 1462 : serial >= 1 && serial < 60 ? serial + 1 : serial
+  return new Date(Math.round((days - 25569) * DAY_MS))
+}
+
+// "BC12" -> 54 (zero-based column of a cell reference).
+function columnIndex(ref) {
+  let n = 0
+  for (let i = 0; i < ref.length; i++) {
+    const code = ref.charCodeAt(i)
+    if (code < 65 || code > 90) break
+    n = n * 26 + code - 64
+  }
+  return n - 1
+}
+
+// Text is trimmed, and error results such as #N/A count as blank cells.
+function cellValue(content, type, style, p, book) {
+  if (type === 'inlineStr') return textOf(content, p).trim() || null
+  if (type === 'e') return null
+  const open = content.indexOf(`<${p}v>`)
+  if (open === -1) return null
+  const raw = content.slice(open + p.length + 3, content.indexOf(`</${p}v>`, open))
+  switch (type) {
+    case 's':
+      return book.sharedStrings[Number(raw)] || null
+    case 'str':
+      return decode(raw).trim() || null
+    case 'b':
+      return raw === '1' || raw === 'true'
+    case 'd': {
+      const date = new Date(raw)
+      return Number.isNaN(date.getTime()) ? decode(raw) : date
+    }
+    default: {
+      if (raw === '') return null
+      const number = Number(raw)
+      if (Number.isNaN(number)) return decode(raw)
+      return style !== null && book.dateStyles.has(Number(style)) ? excelDate(number, book.date1904) : number
+    }
+  }
+}
+
+// Adds the rows found in `xml` to `rows` (each an array of cell values, null for blanks).
+// Rows without any value are skipped: callers only need the header and data rows.
+function parseRows(xml, p, book, rows) {
+  const rowOpen = `<${p}row`
+  const rowClose = `</${p}row>`
+  const cellOpen = `<${p}c`
+  const cellClose = `</${p}c>`
+  for (let i = xml.indexOf(rowOpen); i !== -1; i = xml.indexOf(rowOpen, i)) {
+    const rowTagEnd = xml.indexOf('>', i)
+    if (!endsName(xml.charCodeAt(i + rowOpen.length)) || xml.charCodeAt(rowTagEnd - 1) === 47) {
+      i = rowTagEnd + 1
+      continue
+    }
+    const rowEnd = xml.indexOf(rowClose, rowTagEnd)
+    if (rowEnd === -1) break
+    const cells = []
+    let col = 0
+    let hasValue = false
+    for (let j = xml.indexOf(cellOpen, rowTagEnd); j !== -1 && j < rowEnd; j = xml.indexOf(cellOpen, j)) {
+      const tagEnd = xml.indexOf('>', j)
+      if (!endsName(xml.charCodeAt(j + cellOpen.length))) {
+        j = tagEnd + 1
+        continue
+      }
+      const tag = xml.slice(j + cellOpen.length, tagEnd)
+      const ref = attr(tag, 'r')
+      if (ref) col = columnIndex(ref)
+      let content = ''
+      if (xml.charCodeAt(tagEnd - 1) === 47) {
+        j = tagEnd + 1
+      } else {
+        const end = xml.indexOf(cellClose, tagEnd)
+        content = xml.slice(tagEnd + 1, end)
+        j = end + cellClose.length
+      }
+      const value = cellValue(content, attr(tag, 't'), attr(tag, 's'), p, book)
+      if (value !== null) {
+        while (cells.length < col) cells.push(null)
+        cells[col] = value
+        hasValue = true
+      }
+      col++
+    }
+    if (hasValue) rows.push(cells)
+    i = rowEnd + rowClose.length
+  }
+}
+
+// Reads every sheet's cell values: [{ sheet: name, data: [[cell, ...], ...] }].
+async function readWorkbook(file, onProgress) {
+  const entries = await readZipDirectory(file)
+  const packageRels = await readRelationships(file, entries, '')
+  const workbookPath = [...packageRels.values()].find((r) => r.type.endsWith('/officeDocument'))?.target ?? 'xl/workbook.xml'
+  const workbookEntry = entries.get(workbookPath.toLowerCase())
+  if (!workbookEntry) throw new ImportError(UNREADABLE, `${workbookPath} is missing, so this is not an Excel workbook.`)
+
+  const workbookXml = await readEntryText(file, workbookEntry)
+  const rels = await readRelationships(file, entries, workbookPath)
+  const target = (suffix) => [...rels.values()].find((r) => r.type.endsWith(suffix))?.target
+  const date1904 = /\sdate1904="(1|true)"/.test(startTags(workbookXml, 'workbookPr')[0] ?? '')
+  const dateStyles = await readDateStyles(file, entries, target('/styles'))
+  const sharedStrings = await readSharedStrings(file, entries, target('/sharedStrings'), (fraction) =>
+    onProgress(`Reading text… ${Math.round(fraction * 100)}%`),
+  )
+  const book = { sharedStrings, dateStyles, date1904 }
+
+  const sheetTags = startTags(workbookXml, 'sheet')
+  const sheets = []
+  for (const tag of sheetTags) {
+    const name = decode(attr(tag, 'name') ?? `Sheet${sheets.length + 1}`)
+    const relId = /\s\w+:id="([^"]*)"/.exec(tag)?.[1]
+    const entry = entries.get((rels.get(relId)?.target ?? '').toLowerCase())
+    const data = []
+    if (entry) {
+      const label = sheetTags.length > 1 ? `Reading ${name}…` : 'Reading workbook…'
+      await readEntryInParts(file, entry, 'worksheet', 'row', (xml, p) => parseRows(xml, p, book, data), (fraction) =>
+        onProgress(`${label} ${Math.round(fraction * 100)}%`),
+      )
+    }
+    sheets.push({ sheet: name, data })
+  }
+  return sheets
+}
+
+// ---------------------------------------------------------------------------------------------
+
 // Reads every sheet of an .xlsx file. The first non-empty row of each sheet is its header row.
 // Returns { sheets: [{ name, columns, rows, titleKey, pairRanges, suggestedFilterKeys }] },
 // skipping sheets without data; throws an ImportError (message + detail) on failure.
@@ -53,16 +430,14 @@ export async function parseExcel(file, onProgress = () => {}) {
   await checkSignature(file)
 
   onProgress('Reading workbook…')
-  let result
+  let rawSheets
   try {
-    result = await readXlsxFile(file)
+    rawSheets = await readWorkbook(file, onProgress)
   } catch (err) {
-    // The stack shows where inside read-excel-file it failed (e.g. a "Maximum call stack" RangeError).
-    throw new ImportError('Could not read this workbook. It may be damaged; try opening it in Excel and saving it again.', err?.stack ?? err?.message ?? String(err))
+    if (err instanceof ImportError) throw err
+    throw new ImportError(UNREADABLE, err?.stack ?? err?.message ?? String(err))
   }
 
-  // Newer read-excel-file versions return [{ sheet, data }]; older ones return one sheet's rows.
-  const rawSheets = Array.isArray(result?.[0]?.data) ? result : [{ sheet: 'Sheet1', data: result ?? [] }]
   const sheets = rawSheets
     .map(({ sheet, data }) => parseSheet(sheet, data, rawSheets.length > 1 ? `${sheet}: ` : '', onProgress))
     .filter(Boolean)
@@ -87,6 +462,8 @@ function parseSheet(name, data, progressPrefix, onProgress) {
   const width = dataRows.reduce((max, row) => Math.max(max, row.length), data[headerIndex].length)
   const headers = uniqueHeaders(data[headerIndex], width)
   const columns = detectColumns(headers, dataRows)
+  // Numbers and dates often repeat (e.g. the same date on many rows), and formatting them is slow.
+  const formatCaches = columns.map(() => new Map())
 
   const rows = dataRows.map((cells, r) => {
     if (r % PROGRESS_EVERY === 0) {
@@ -97,7 +474,19 @@ function parseSheet(name, data, progressPrefix, onProgress) {
     for (let i = 0; i < width; i++) {
       const value = isEmpty(cells[i]) ? null : cells[i]
       row[i] = value
-      if (value !== null) texts.push(formatCell(value, columns[i].type))
+      if (value === null) continue
+      if (typeof value === 'string') {
+        texts.push(value)
+        continue
+      }
+      const cache = formatCaches[i]
+      const key = value instanceof Date ? value.getTime() : value
+      let text = cache.get(key)
+      if (text === undefined) {
+        text = formatCell(value, columns[i].type)
+        if (cache.size < FORMAT_CACHE_LIMIT) cache.set(key, text)
+      }
+      texts.push(text)
     }
     // Precomputed search text of every cell, so search stays fast on wide files.
     row[width] = texts.join('\n').toLowerCase()

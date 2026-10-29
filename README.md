@@ -20,7 +20,7 @@ Files are read entirely in your browser. Nothing is uploaded to a server, so it 
 - **Multiple sheets** appear as tabs.
 - **Row details:** click a row to see all its fields, with copy buttons.
 - **Export** the filtered rows as CSV.
-- **Large files:** 50,000+ rows load without freezing the page (reading runs in a background worker).
+- **Large files:** 50,000 rows open in about 2–4 seconds without freezing the page. The workbook is read by a small built-in reader that uses the browser's own unzip support, in a background worker.
 - **Responsive:** a table on desktop and cards on phones, with light and dark themes.
 - **Clear error messages** for empty, password-protected, old .xls or renamed files, with technical details for troubleshooting.
 
@@ -54,9 +54,10 @@ src/
 ├── components/             one small component per file (table, cards, filters, …)
 ├── config/columns.js       optional per-header labels, types and filters
 ├── utils/
-│   ├── parseExcel.js       reads the workbook (the only place Excel is parsed)
+│   ├── parseExcel.js       reads the workbook (the only place Excel is parsed; no library)
 │   ├── detectColumns.js    works out each column's type and filter
 │   ├── filterRows.js       search, filters and sorting
+│   ├── xlsxFixture.js      builds real .xlsx files in memory for the tests
 │   └── *.test.js           unit tests, next to the code they check
 └── workers/                runs parsing off the main thread
 ```
@@ -86,4 +87,4 @@ The workflow is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Built with
 
-[React](https://react.dev), [Vite](https://vite.dev), [read-excel-file](https://www.npmjs.com/package/read-excel-file) and [Vitest](https://vitest.dev), styled with plain CSS.
+[React](https://react.dev), [Vite](https://vite.dev) and [Vitest](https://vitest.dev), styled with plain CSS. Excel files are read with the browser's built-in [DecompressionStream](https://developer.mozilla.org/docs/Web/API/DecompressionStream); there is no spreadsheet library.
