@@ -41,13 +41,21 @@ async function threads(number) {
 
 const checksFor = async (sha) => (await api(`/commits/${sha}/check-runs?per_page=100`)).check_runs
 
+// Waits until every workflow run for the commit has finished. Checking the check runs alone is not
+// enough: a job that is skipped (deploy on PRs) completes at once, before the other jobs even appear.
+async function waitForRuns(sha) {
+  for (let i = 0; i < 60; i++) {
+    const runs = (await api(`/actions/runs?head_sha=${sha}`)).workflow_runs ?? []
+    if (runs.length && runs.every((r) => r.status === 'completed')) return
+    await wait(10000)
+  }
+  console.log('Still running after 10 minutes; showing the current state.')
+}
+
 async function show(number, waitForChecks) {
   let pr = await api(`/pulls/${number}`)
-  let checks = await checksFor(pr.head.sha)
-  for (let i = 0; waitForChecks && i < 60 && (!checks.length || checks.some((c) => c.status !== 'completed')); i++) {
-    await wait(10000)
-    checks = await checksFor(pr.head.sha)
-  }
+  if (waitForChecks) await waitForRuns(pr.head.sha)
+  const checks = await checksFor(pr.head.sha)
   // mergeable_state is computed lazily; ask again until GitHub has an answer.
   for (let i = 0; i < 5 && pr.mergeable_state === 'unknown'; i++) {
     await wait(3000)
