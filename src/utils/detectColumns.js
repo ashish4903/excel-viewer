@@ -2,6 +2,9 @@ import { columnOverrides } from '../config/columns.js'
 
 const isEmpty = (value) => value === null || value === undefined || value === ''
 
+// Columns with more distinct values than this get a "contains" filter instead of a dropdown.
+const DISTINCT_LIMIT = 200
+
 // Header words that mark numeric columns as codes (shown as typed, no thousands separators).
 const CODE_WORDS = new Set(['id', 'code', 'zip', 'zipcode', 'postcode', 'postal', 'phone', 'phoneext', 'fax', 'ext', 'year', 'fein', 'ein', 'naics', 'ssn', 'number', 'no'])
 
@@ -43,7 +46,7 @@ function inferType(header, count, allDates, allNumbers) {
 function filterKindFor(type, distinct) {
   if (type === 'date') return 'dateRange'
   if (type === 'number' || type === 'currency') return 'numberRange'
-  return distinct <= 200 ? 'select' : 'contains'
+  return distinct <= DISTINCT_LIMIT ? 'select' : 'contains'
 }
 
 // Builds column definitions from headers and data rows (arrays of cells).
@@ -51,22 +54,27 @@ function filterKindFor(type, distinct) {
 export function detectColumns(headers, dataRows) {
   return headers.map((header, i) => {
     // Single pass over the column, without intermediate arrays (matters for 50k+ row files).
+    // Distinct values are only compared with small limits (50, 200) and checked for "all different",
+    // so counting stops once a repeat has been seen and there are more than DISTINCT_LIMIT of them.
     let count = 0
     let allDates = true
     let allNumbers = true
+    let repeated = false
     const distinctValues = new Set()
     for (const row of dataRows) {
       const v = row[i]
       if (isEmpty(v)) continue
       count++
+      const key = v instanceof Date ? v.getTime() : v
       if (v instanceof Date) {
         allNumbers = false
-        distinctValues.add(v.getTime())
       } else {
         allDates = false
         if (typeof v !== 'number') allNumbers = false
-        distinctValues.add(v)
       }
+      if (repeated && distinctValues.size > DISTINCT_LIMIT) continue
+      if (distinctValues.has(key)) repeated = true
+      else distinctValues.add(key)
     }
     const distinct = distinctValues.size
 

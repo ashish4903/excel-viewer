@@ -2,16 +2,14 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import readXlsxFile from 'read-excel-file/web-worker'
 import App from './App.jsx'
+import { makeXlsx } from './utils/xlsxFixture.js'
 
 // The worker can't run in tests: parse on the main thread instead, with the real parseExcel.
 vi.mock('./utils/parseInWorker.js', async () => {
   const { parseExcel } = await import('./utils/parseExcel.js')
   return { parseInWorker: (file, onProgress) => parseExcel(file, onProgress) }
 })
-// The real reader needs a browser worker too; it returns this sample sheet instead.
-vi.mock('read-excel-file/web-worker', () => ({ default: vi.fn() }))
 
 const STATUSES = ['Certified', 'Denied', 'Withdrawn']
 const STATES = ['CA', 'NY', 'TX', 'WA']
@@ -25,8 +23,8 @@ const SHEET = [
   ]),
 ]
 
-// .xlsx files start with the zip signature; the app checks it before reading.
-const xlsxFile = (name = 'cases.xlsx') => new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], name)
+// A real .xlsx built in memory, read by the real parser.
+const xlsxFile = (name = 'cases.xlsx') => makeXlsx([{ name: 'Cases', rows: SHEET }], { fileName: name })
 
 const tableRows = () => within(screen.getByRole('table')).getAllByRole('row').slice(1) // skip the header row
 const firstCells = () => tableRows().map((row) => within(row).getAllByRole('cell')[0].textContent)
@@ -44,7 +42,6 @@ beforeAll(() => {
 
 beforeEach(() => {
   localStorage.clear()
-  readXlsxFile.mockResolvedValue([{ sheet: 'Cases', data: SHEET }])
 })
 
 afterEach(() => {
