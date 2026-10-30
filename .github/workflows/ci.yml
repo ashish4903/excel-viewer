@@ -13,6 +13,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Jobs only get read access to the code unless they ask for more (deploy does, below).
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
