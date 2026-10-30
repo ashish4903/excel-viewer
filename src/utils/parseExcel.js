@@ -120,14 +120,14 @@ function lastStartTag(text, open) {
 // Streams an entry and calls onPart(xml, prefix) with pieces that each end right before a `<child`
 // start tag, so every element in a piece is complete. prefix is the XML namespace prefix the file
 // uses (usually '', sometimes 'x:'), detected from the root element.
-// Only each new chunk (plus a few carried-over characters) is searched, and text without a cut
+// Each chunk is cut at its last `<child` start tag, so text is copied only once when joined. A tag
+// split across two chunks is simply not used as a cut point; a later one is. Text without a cut
 // point is kept as a list of chunks, so long stretches without one stay linear.
 async function readEntryInParts(file, entry, root, child, onPart, onProgress) {
   let head = '' // text before the root element has been found
   let open = null
   let prefix = ''
   let pending = [] // text not handed on yet
-  let tail = '' // its last characters, to find a start tag split across chunks
   await readEntry(file, entry, (chunk, fraction) => {
     if (open === null) {
       head += chunk
@@ -138,19 +138,15 @@ async function readEntryInParts(file, entry, root, child, onPart, onProgress) {
       chunk = head
       head = ''
     }
-    const region = tail + chunk
-    const at = lastStartTag(region, open)
+    const at = lastStartTag(chunk, open)
     if (at === -1) {
       pending.push(chunk)
-      tail = region.slice(-open.length)
       return
     }
-    const text = pending.join('') + chunk
-    const cut = text.length - region.length + at
-    if (cut > 0) onPart(text.slice(0, cut), prefix)
-    const rest = text.slice(cut)
-    pending = [rest]
-    tail = rest.slice(-open.length)
+    pending.push(chunk.slice(0, at))
+    const text = pending.join('')
+    if (text) onPart(text, prefix)
+    pending = [chunk.slice(at)]
     onProgress?.(fraction)
   })
   const rest = head || pending.join('')
@@ -243,10 +239,10 @@ function isDateFormatCode(code) {
   return /[dmyhs]/i.test(cleaned)
 }
 
-// Indexes of cell styles (the `s` attribute) whose number format is a date.
+// Which cell styles (the `s` attribute) have a date number format: dateStyles[style] is true.
 async function readDateStyles(file, entries, path) {
   const entry = path && entries.get(path.toLowerCase())
-  const dateStyles = new Set()
+  const dateStyles = []
   if (!entry) return dateStyles
   const xml = await readEntryText(file, entry)
   const customFormats = new Map(startTags(xml, 'numFmt').map((tag) => [Number(attr(tag, 'numFmtId')), decode(attr(tag, 'formatCode') ?? '')]))
@@ -254,7 +250,7 @@ async function readDateStyles(file, entries, path) {
   startTags(cellXfs, 'xf').forEach((tag, index) => {
     const id = Number(attr(tag, 'numFmtId') ?? 0)
     const code = customFormats.get(id)
-    if (code === undefined ? isBuiltInDateFormat(id) : isDateFormatCode(code)) dateStyles.add(index)
+    dateStyles[index] = code === undefined ? isBuiltInDateFormat(id) : isDateFormatCode(code)
   })
   return dateStyles
 }
@@ -292,51 +288,87 @@ function excelDate(serial, date1904) {
   return new Date(Math.round((days - 25569) * DAY_MS))
 }
 
-// "BC12" -> 54 (zero-based column of a cell reference).
-function columnIndex(ref) {
+// The scanning below works on positions in the XML text and avoids creating strings per cell:
+// with millions of cells, those small strings cost more than the scanning itself.
+
+// "BC12" at xml[start..end) -> 54 (zero-based column of a cell reference).
+function columnAt(xml, start, end) {
   let n = 0
-  for (let i = 0; i < ref.length; i++) {
-    const code = ref.charCodeAt(i)
+  for (let i = start; i < end; i++) {
+    const code = xml.charCodeAt(i)
     if (code < 65 || code > 90) break
     n = n * 26 + code - 64
   }
   return n - 1
 }
 
-// Text is trimmed, and error results such as #N/A count as blank cells.
-function cellValue(content, type, style, p, book) {
-  if (type === 'inlineStr') return textOf(content, p).trim() || null
-  if (type === 'e') return null
-  const open = content.indexOf(`<${p}v>`)
-  if (open === -1) return null
-  const raw = content.slice(open + p.length + 3, content.indexOf(`</${p}v>`, open))
+// Non-negative integer at xml[start..end).
+function integerAt(xml, start, end) {
+  let n = 0
+  for (let i = start; i < end; i++) n = n * 10 + xml.charCodeAt(i) - 48
+  return n
+}
+
+// Cell types (the `t` attribute) as small numbers.
+const NUMBER = 0 // n, or no t attribute
+const SHARED = 1 // s: index into the shared strings
+const FORMULA_TEXT = 2 // str
+const INLINE = 3 // inlineStr
+const BOOLEAN = 4 // b
+const ERROR = 5 // e
+const ISO_DATE = 6 // d
+
+function typeAt(xml, start, end) {
+  switch (xml.charCodeAt(start)) {
+    case 115: // s, str
+      return end - start === 1 ? SHARED : FORMULA_TEXT
+    case 105: // inlineStr
+      return INLINE
+    case 98: // b
+      return BOOLEAN
+    case 101: // e
+      return ERROR
+    case 100: // d
+      return ISO_DATE
+    default:
+      return NUMBER
+  }
+}
+
+const isSpace = (code) => code === 32 || code === 9 || code === 10 || code === 13
+
+// Value of a cell's <v> text at xml[start..end). Text is trimmed.
+function cellValue(xml, start, end, type, style, book) {
+  if (type === SHARED) return book.sharedStrings[integerAt(xml, start, end)] || null
+  if (start === end) return null
+  const raw = xml.slice(start, end)
   switch (type) {
-    case 's':
-      return book.sharedStrings[Number(raw)] || null
-    case 'str':
+    case FORMULA_TEXT:
       return decode(raw).trim() || null
-    case 'b':
+    case BOOLEAN:
       return raw === '1' || raw === 'true'
-    case 'd': {
+    case ISO_DATE: {
       const date = new Date(raw)
       return Number.isNaN(date.getTime()) ? decode(raw) : date
     }
     default: {
-      if (raw === '') return null
       const number = Number(raw)
       if (Number.isNaN(number)) return decode(raw)
-      return style !== null && book.dateStyles.has(Number(style)) ? excelDate(number, book.date1904) : number
+      return book.dateStyles[style] ? excelDate(number, book.date1904) : number
     }
   }
 }
 
 // Adds the rows found in `xml` to `rows` (each an array of cell values, null for blanks).
 // Rows without any value are skipped: callers only need the header and data rows.
+// Error results such as #N/A count as blank cells.
 function parseRows(xml, p, book, rows) {
   const rowOpen = `<${p}row`
   const rowClose = `</${p}row>`
   const cellOpen = `<${p}c`
   const cellClose = `</${p}c>`
+  const valueOpen = `<${p}v>`
+  const valueClose = `</${p}v>`
   for (let i = xml.indexOf(rowOpen); i !== -1; i = xml.indexOf(rowOpen, i)) {
     const rowTagEnd = xml.indexOf('>', i)
     if (!endsName(xml.charCodeAt(i + rowOpen.length)) || xml.charCodeAt(rowTagEnd - 1) === 47) {
@@ -354,18 +386,46 @@ function parseRows(xml, p, book, rows) {
         j = tagEnd + 1
         continue
       }
-      const tag = xml.slice(j + cellOpen.length, tagEnd)
-      const ref = attr(tag, 'r')
-      if (ref) col = columnIndex(ref)
-      let content = ''
+      // Read the start tag's attributes in place: r (reference), t (type) and s (style) are the
+      // only one-letter names; longer or prefixed names (xr:uid, cm, vm) are skipped.
+      let type = NUMBER
+      let style = -1
+      for (let a = j + cellOpen.length; a < tagEnd; ) {
+        const eq = xml.indexOf('=', a)
+        if (eq === -1 || eq > tagEnd) break
+        const start = eq + 2
+        const end = xml.indexOf(xml.charCodeAt(eq + 1) === 39 ? "'" : '"', start)
+        if (isSpace(xml.charCodeAt(eq - 2))) {
+          const name = xml.charCodeAt(eq - 1)
+          if (name === 114) col = columnAt(xml, start, end)
+          else if (name === 116) type = typeAt(xml, start, end)
+          else if (name === 115) style = integerAt(xml, start, end)
+        }
+        a = end + 1
+      }
+      let value = null
       if (xml.charCodeAt(tagEnd - 1) === 47) {
         j = tagEnd + 1
+      } else if (type !== INLINE && xml.startsWith(valueOpen, tagEnd + 1)) {
+        // Usual layout, checked in place instead of searched for: <c ...><v>value</v></c>
+        const start = tagEnd + 1 + valueOpen.length
+        const valueEnd = xml.indexOf('<', start)
+        if (type !== ERROR) value = cellValue(xml, start, valueEnd, type, style, book)
+        const after = valueEnd + valueClose.length
+        j = xml.startsWith(cellClose, after) ? after + cellClose.length : xml.indexOf(cellClose, after) + cellClose.length
       } else {
         const end = xml.indexOf(cellClose, tagEnd)
-        content = xml.slice(tagEnd + 1, end)
+        if (type === INLINE) {
+          value = textOf(xml.slice(tagEnd + 1, end), p).trim() || null
+        } else if (type !== ERROR) {
+          const v = xml.indexOf(valueOpen, tagEnd)
+          if (v !== -1 && v < end) {
+            const start = v + valueOpen.length
+            value = cellValue(xml, start, xml.indexOf(valueClose, start), type, style, book)
+          }
+        }
         j = end + cellClose.length
       }
-      const value = cellValue(content, attr(tag, 't'), attr(tag, 's'), p, book)
       if (value !== null) {
         while (cells.length < col) cells.push(null)
         cells[col] = value

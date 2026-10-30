@@ -131,6 +131,18 @@ describe('parseExcel: reading cells', () => {
     expect(await cells(makeXlsx([{ name: 'S', xml }]))).toEqual([[null, 1]])
   })
 
+  it('reads cell attributes in any order, quote style or with extra attributes', async () => {
+    const xml = worksheet(
+      '<row r="1"><c t="inlineStr" r="A1"><is><t>A</t></is></c><c r="B1" t="inlineStr"><is><t>B</t></is></c><c r="C1" t="inlineStr"><is><t>C</t></is></c><c r="D1" t="inlineStr"><is><t>D</t></is></c></row>' +
+        "<row r=\"2\"><c s='1' r='A2'><v>45356</v></c>" + // single quotes, style before reference
+        '<c xr:uid="{1}" cm="1" r="B2" vm="2"><v>7</v></c>' + // prefixed and two-letter attributes are skipped
+        '<c r="C2" s="0" t="s"><f>X1</f><v>0</v></c>' + // formula before the value
+        '<c r="D2"\n  t="b"><v>1</v></c></row>', // attributes on a new line
+    )
+    const file = makeXlsx([{ name: 'S', xml }], { files: { 'xl/sharedStrings.xml': '<sst><si><t>shared</t></si></sst>' } })
+    expect(await cells(file)).toEqual([[d('2024-03-05'), 7, 'shared', true]])
+  })
+
   it('places cells by their reference and handles cells without one', async () => {
     const xml = worksheet('<row r="1"><c r="B1"><v>1</v></c><c><v>2</v></c><c r="E1"><v>3</v></c></row><row r="3"><c r="A3"><v>4</v></c></row>')
     const [sheet] = (await parseExcel(makeXlsx([{ name: 'S', xml }]))).sheets
