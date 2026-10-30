@@ -185,6 +185,10 @@ const endsName = (code) => code === 32 || code === 62 || code === 47 || code ===
 // Start tags `<name ...>` in xml, in order, as their full text (any namespace prefix).
 const startTags = (xml, name) => xml.match(new RegExp(`<(?:\\w+:)?${name}[\\s/>][^>]*>`, 'g')) ?? []
 
+// The scanning loops in this file stop as soon as a search finds nothing. On a damaged file,
+// carrying on with the -1 that indexOf returns would restart the loop from the beginning and never
+// finish; stopping instead keeps what was read so far.
+
 // Concatenated text of all <t> elements in a string item or inline string, skipping phonetic runs.
 function textOf(xml, p) {
   const phonetic = `<${p}rPh`
@@ -194,11 +198,13 @@ function textOf(xml, p) {
   let text = ''
   for (let i = xml.indexOf(open); i !== -1; i = xml.indexOf(open, i)) {
     const tagEnd = xml.indexOf('>', i)
+    if (tagEnd === -1) break
     if (!endsName(xml.charCodeAt(i + open.length)) || xml.charCodeAt(tagEnd - 1) === 47) {
       i = tagEnd + 1
       continue
     }
     const end = xml.indexOf(close, tagEnd)
+    if (end === -1) break
     text += xml.slice(tagEnd + 1, end)
     i = end + close.length
   }
@@ -264,6 +270,7 @@ async function readSharedStrings(file, entries, path, onProgress) {
     const close = `</${p}si>`
     for (let i = xml.indexOf(open); i !== -1; i = xml.indexOf(open, i)) {
       const tagEnd = xml.indexOf('>', i)
+      if (tagEnd === -1) break
       if (!endsName(xml.charCodeAt(i + open.length))) {
         i = tagEnd + 1
       } else if (xml.charCodeAt(tagEnd - 1) === 47) {
@@ -271,6 +278,7 @@ async function readSharedStrings(file, entries, path, onProgress) {
         i = tagEnd + 1
       } else {
         const end = xml.indexOf(close, tagEnd)
+        if (end === -1) break
         strings.push(textOf(xml.slice(tagEnd + 1, end), p).trim())
         i = end + close.length
       }
@@ -371,6 +379,7 @@ function parseRows(xml, p, book, rows) {
   const valueClose = `</${p}v>`
   for (let i = xml.indexOf(rowOpen); i !== -1; i = xml.indexOf(rowOpen, i)) {
     const rowTagEnd = xml.indexOf('>', i)
+    if (rowTagEnd === -1) break
     if (!endsName(xml.charCodeAt(i + rowOpen.length)) || xml.charCodeAt(rowTagEnd - 1) === 47) {
       i = rowTagEnd + 1
       continue
@@ -382,6 +391,7 @@ function parseRows(xml, p, book, rows) {
     let hasValue = false
     for (let j = xml.indexOf(cellOpen, rowTagEnd); j !== -1 && j < rowEnd; j = xml.indexOf(cellOpen, j)) {
       const tagEnd = xml.indexOf('>', j)
+      if (tagEnd === -1) break
       if (!endsName(xml.charCodeAt(j + cellOpen.length))) {
         j = tagEnd + 1
         continue
@@ -395,6 +405,7 @@ function parseRows(xml, p, book, rows) {
         if (eq === -1 || eq > tagEnd) break
         const start = eq + 2
         const end = xml.indexOf(xml.charCodeAt(eq + 1) === 39 ? "'" : '"', start)
+        if (end === -1) break
         if (isSpace(xml.charCodeAt(eq - 2))) {
           const name = xml.charCodeAt(eq - 1)
           if (name === 114) col = columnAt(xml, start, end)
@@ -410,19 +421,21 @@ function parseRows(xml, p, book, rows) {
         // Usual layout, checked in place instead of searched for: <c ...><v>value</v></c>
         const start = tagEnd + 1 + valueOpen.length
         const valueEnd = xml.indexOf('<', start)
+        if (valueEnd === -1) break
         if (type !== ERROR) value = cellValue(xml, start, valueEnd, type, style, book)
         const after = valueEnd + valueClose.length
-        j = xml.startsWith(cellClose, after) ? after + cellClose.length : xml.indexOf(cellClose, after) + cellClose.length
+        const end = xml.startsWith(cellClose, after) ? after : xml.indexOf(cellClose, after)
+        if (end === -1) break
+        j = end + cellClose.length
       } else {
         const end = xml.indexOf(cellClose, tagEnd)
+        if (end === -1) break
         if (type === INLINE) {
           value = textOf(xml.slice(tagEnd + 1, end), p).trim() || null
         } else if (type !== ERROR) {
           const v = xml.indexOf(valueOpen, tagEnd)
-          if (v !== -1 && v < end) {
-            const start = v + valueOpen.length
-            value = cellValue(xml, start, xml.indexOf(valueClose, start), type, style, book)
-          }
+          const valueEnd = v === -1 || v > end ? -1 : xml.indexOf(valueClose, v)
+          if (valueEnd !== -1) value = cellValue(xml, v + valueOpen.length, valueEnd, type, style, book)
         }
         j = end + cellClose.length
       }

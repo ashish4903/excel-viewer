@@ -143,6 +143,17 @@ describe('parseExcel: reading cells', () => {
     expect(await cells(file)).toEqual([[d('2024-03-05'), 7, 'shared', true]])
   })
 
+  it('finishes, keeping what it could read, when cells are damaged', { timeout: 5000 }, async () => {
+    const xml = worksheet(
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>A</t></is></c><c r="B1" t="inlineStr"><is><t>B</t></is></c></row>' +
+        '<row r="2"><c r="A2"><v>1</v></c><c r="B2" t="inlineStr"><is><t>no end tag</is></c></row>' + // <t> never closed
+        '<row r="3"><c r="A3"><v>3</v></row>' + // </c> missing
+        '<row r="4"><c r="A4"><v>4</v></c><c r="B4" s="1><v>5</v></c></row>', // closing quote missing
+    )
+    const result = await cells(makeXlsx([{ name: 'S', xml }]))
+    expect(result[0]).toEqual([1, null])
+  })
+
   it('places cells by their reference and handles cells without one', async () => {
     const xml = worksheet('<row r="1"><c r="B1"><v>1</v></c><c><v>2</v></c><c r="E1"><v>3</v></c></row><row r="3"><c r="A3"><v>4</v></c></row>')
     const [sheet] = (await parseExcel(makeXlsx([{ name: 'S', xml }]))).sheets
