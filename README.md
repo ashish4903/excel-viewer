@@ -95,3 +95,7 @@ GitHub also runs these free security checks on the repository:
 ## Built with
 
 [React](https://react.dev), [Vite](https://vite.dev) and [Vitest](https://vitest.dev), styled with plain CSS. Excel files are read with the browser's built-in [DecompressionStream](https://developer.mozilla.org/docs/Web/API/DecompressionStream); there is no spreadsheet library.
+
+## License
+
+[MIT](LICENSE): free to use, copy, change and share, as long as the copyright notice is kept. It comes with no warranty.
