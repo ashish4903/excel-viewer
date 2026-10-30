@@ -92,6 +92,23 @@ GitHub also runs these free security checks on the repository:
 - **Secret scanning with push protection** blocks any push that contains a token or password.
 - **Dependabot** opens pull requests for outdated or vulnerable dependencies.
 
+## Versions and releases
+
+The app uses [Semantic Versioning](https://semver.org): **MAJOR.MINOR.PATCH**, for example 1.4.2.
+
+- **PATCH** (1.0.0 → 1.0.1): bug fixes only.
+- **MINOR** (1.0.1 → 1.1.0): new features that keep everything working as before.
+- **MAJOR** (1.1.0 → 2.0.0): changes that break how something worked before.
+
+The current version is in `package.json` and is shown in the footer of the live site, with the commit it was built from. [CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
+
+Day-to-day changes are listed under **Unreleased** in the changelog. To publish a release:
+
+1. On a new branch, run `npm version minor --no-git-tag-version` (or `patch` / `major`) to update the version in `package.json` and `package-lock.json`.
+2. In CHANGELOG.md, rename **Unreleased** to the new version and date, and start a new empty **Unreleased** section above it. Update the links at the bottom.
+3. Open a pull request. CI checks that the changelog has an entry for the new version.
+4. After merging, CI deploys the site and creates the git tag (for example `v1.1.0`) and a [GitHub Release](https://github.com/ashish4903/excel-viewer/releases) with that version's changelog as its notes.
+
 ## Built with
 
 [React](https://react.dev), [Vite](https://vite.dev) and [Vitest](https://vitest.dev), styled with plain CSS. Excel files are read with the browser's built-in [DecompressionStream](https://developer.mozilla.org/docs/Web/API/DecompressionStream); there is no spreadsheet library.
