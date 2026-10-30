@@ -41,15 +41,23 @@ async function threads(number) {
 
 const checksFor = async (sha) => (await api(`/commits/${sha}/check-runs?per_page=100`)).check_runs
 
-// Waits until every workflow run for the commit has finished. Checking the check runs alone is not
-// enough: a job that is skipped (deploy on PRs) completes at once, before the other jobs even appear.
+// Waits until every workflow run for the commit (CI, CodeQL, …) has finished and returns them.
+// Checking the check runs alone is not enough: a job that is skipped (deploy on PRs) completes at
+// once, before the other jobs even appear. Workflows can also start a few seconds apart, so the
+// runs must be finished, with the same count, on two polls in a row.
 async function waitForRuns(sha) {
+  let runs = []
+  let settled = 0
   for (let i = 0; i < 60; i++) {
-    const runs = (await api(`/actions/runs?head_sha=${sha}`)).workflow_runs ?? []
-    if (runs.length && runs.every((r) => r.status === 'completed')) return
+    const previous = runs.length
+    runs = (await api(`/actions/runs?head_sha=${sha}`)).workflow_runs ?? []
+    const done = runs.length > 0 && runs.every((r) => r.status === 'completed')
+    settled = done && runs.length === previous ? settled + 1 : 0
+    if (settled >= 1) return runs
     await wait(10000)
   }
   console.log('Still running after 10 minutes; showing the current state.')
+  return runs
 }
 
 async function show(number, waitForChecks) {
@@ -101,16 +109,13 @@ async function merge(number, expectedSha) {
     method: 'PUT',
     body: JSON.stringify({ merge_method: 'merge', sha: expectedSha }),
   })
-  console.log(`Merged #${number} as ${result.sha.slice(0, 7)}; waiting for the ${pr.base.ref} workflow run…`)
-  let run
-  for (let i = 0; i < 60; i++) {
-    run = (await api(`/actions/runs?head_sha=${result.sha}&branch=${pr.base.ref}`)).workflow_runs?.[0]
-    if (run?.status === 'completed') break
-    await wait(10000)
+  console.log(`Merged #${number} as ${result.sha.slice(0, 7)}; waiting for the ${pr.base.ref} workflow runs…`)
+  const runs = await waitForRuns(result.sha)
+  if (!runs.length) return console.log('No workflow run appeared for the merge commit.')
+  for (const run of runs) {
+    console.log(`${run.name}: ${run.status} ${run.conclusion ?? ''} ${run.html_url}`)
+    for (const job of (await api(`/actions/runs/${run.id}/jobs`)).jobs) console.log(`  ${job.name}: ${job.conclusion ?? job.status}`)
   }
-  if (!run) return console.log('No workflow run appeared for the merge commit.')
-  console.log(`${pr.base.ref} run: ${run.status} ${run.conclusion ?? ''} ${run.html_url}`)
-  for (const job of (await api(`/actions/runs/${run.id}/jobs`)).jobs) console.log(`  ${job.name}: ${job.conclusion ?? job.status}`)
 }
 
 if (cmd === 'list') {
