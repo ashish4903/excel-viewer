@@ -1,5 +1,6 @@
 # Lints, tests and builds the app and checks dependencies for known vulnerabilities
 # on every push and pull request, and deploys it to GitHub Pages on every push to main.
+# When main has a version that has not been released yet, it also creates the GitHub Release.
 name: CI
 
 on:
@@ -30,6 +31,8 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - name: Check CHANGELOG.md has an entry for this version
+        run: node scripts/release-notes.js > /dev/null
       - run: npm run lint
       - run: npm test
       - run: npm run build
@@ -67,3 +70,26 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  # Tags the commit and publishes a GitHub Release when package.json has a new version, using that
+  # version's CHANGELOG.md section as the notes. Does nothing if the version is already released.
+  release:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create the release if this version is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version is already released."
+          else
+            node scripts/release-notes.js > notes.md
+            gh release create "v$version" --target "$GITHUB_SHA" --title "v$version" --notes-file notes.md
+          fi
