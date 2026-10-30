@@ -83,7 +83,13 @@ Files without those headers are unaffected.
 2. **CI** (GitHub Actions) installs dependencies, then runs lint, tests and the production build. The pull request can only be merged when this passes. A separate **audit** check warns if a dependency has a known security vulnerability.
 3. Merging into `main` runs CI again and then **deploys** the build to GitHub Pages, usually within a minute.
 
-The workflow is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+The workflow is in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Its jobs get read-only access to the code; only the deploy job may publish to Pages.
+
+GitHub also runs these free security checks on the repository:
+
+- **CodeQL code scanning** looks for security problems in the code and workflows on every pull request and push to `main`.
+- **Secret scanning with push protection** blocks any push that contains a token or password.
+- **Dependabot** opens pull requests for outdated or vulnerable dependencies.
 
 ## Built with
 
