@@ -58,7 +58,7 @@ When asked to check a reviewed PR again, or when the user says comments are addr
    - every check passed
    - no review threads are unresolved
    - GitHub reports the branch mergeable (`clean`)
-5. After merging, the script waits for the main workflow run. Report the build, audit and deploy result. If deploy fails, tell the user right away; the live site keeps the previous version.
+5. After merging, the script waits for every workflow run on main (CI and CodeQL) and lists each job. Report the build, audit, deploy and CodeQL results. If deploy fails, tell the user right away; the live site keeps the previous version.
 6. `git switch main` and `git pull --ff-only` so the local copy matches.
 
 Never bypass branch protection, force-push, or delete branches. If any gate fails, report what is blocking and stop.
