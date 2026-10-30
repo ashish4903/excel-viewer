@@ -52,31 +52,42 @@ function filterKindFor(type, distinct) {
 // Builds column definitions from headers and data rows (arrays of cells).
 // key identifies the column in filters and saved preferences; index is its position in each row array.
 export function detectColumns(headers, dataRows) {
-  return headers.map((header, i) => {
-    // Single pass over the column, without intermediate arrays (matters for 50k+ row files).
-    // Distinct values are only compared with small limits (50, 200) and checked for "all different",
-    // so counting stops once a repeat has been seen and there are more than DISTINCT_LIMIT of them.
-    let count = 0
-    let allDates = true
-    let allNumbers = true
-    let repeated = false
-    const distinctValues = new Set()
-    for (const row of dataRows) {
+  // One pass over the rows, row by row (much faster on large files than reading one column at a
+  // time across every row), with per-column counters and no intermediate arrays.
+  // Distinct values are only compared with small limits (50, 200) and checked for "all different",
+  // so counting stops once a repeat has been seen and there are more than DISTINCT_LIMIT of them.
+  const n = headers.length
+  const counts = new Uint32Array(n)
+  const notDates = new Uint8Array(n)
+  const notNumbers = new Uint8Array(n)
+  const repeated = new Uint8Array(n)
+  const distinctValues = headers.map(() => new Set())
+  for (const row of dataRows) {
+    const length = Math.min(row.length, n)
+    for (let i = 0; i < length; i++) {
       const v = row[i]
       if (isEmpty(v)) continue
-      count++
-      const key = v instanceof Date ? v.getTime() : v
+      counts[i]++
+      let key = v
       if (v instanceof Date) {
-        allNumbers = false
+        notNumbers[i] = 1
+        key = v.getTime()
       } else {
-        allDates = false
-        if (typeof v !== 'number') allNumbers = false
+        notDates[i] = 1
+        if (typeof v !== 'number') notNumbers[i] = 1
       }
-      if (repeated && distinctValues.size > DISTINCT_LIMIT) continue
-      if (distinctValues.has(key)) repeated = true
-      else distinctValues.add(key)
+      const seen = distinctValues[i]
+      if (repeated[i] && seen.size > DISTINCT_LIMIT) continue
+      if (seen.has(key)) repeated[i] = 1
+      else seen.add(key)
     }
-    const distinct = distinctValues.size
+  }
+
+  return headers.map((header, i) => {
+    const count = counts[i]
+    const allDates = !notDates[i]
+    const allNumbers = !notNumbers[i]
+    const distinct = distinctValues[i].size
 
     const override = columnOverrides[header] ?? {}
     const empty = count === 0

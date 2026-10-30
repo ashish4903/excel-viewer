@@ -1,3 +1,5 @@
+import { decodeRows } from './rowTransfer.js'
+
 // Runs parseExcel in a Web Worker so large files don't freeze the page.
 // onProgress(message) receives status text while the file is being read.
 // Resolves to the same { sheets } shape parseExcel returns. Rejects with an Error whose
@@ -18,15 +20,15 @@ export function parseInWorker(file, onProgress = () => {}) {
       return
     }
     const rowsBySheet = []
+    const stringsBySheet = []
     let received = 0
 
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') {
         onProgress(data.message)
       } else if (data.type === 'rows') {
-        const rows = (rowsBySheet[data.sheet] ??= [])
-        for (const row of data.rows) rows.push(row)
-        received += data.rows.length
+        decodeRows(data, (stringsBySheet[data.sheet] ??= []), (rowsBySheet[data.sheet] ??= []))
+        received += data.search.length
         onProgress(`Loading ${received.toLocaleString()} rows…`)
       } else {
         worker.terminate()
