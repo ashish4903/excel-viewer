@@ -9,6 +9,10 @@ import { formatCell } from './formatCell.js'
 
 const isEmpty = (cell) => cell === null || cell === undefined || cell === ''
 const PROGRESS_EVERY = 5000
+// On large sheets the first PREVIEW_ROWS data rows are handed on early (see onPreview in parseExcel),
+// so the page can show them while the rest loads. Smaller sheets load quickly enough without.
+const PREVIEW_ROWS = 100
+const PREVIEW_MIN_BYTES = 16 * 1024 * 1024
 // Formatted search text is cached per column for repeated numbers and dates, up to this many values.
 const FORMAT_CACHE_LIMIT = 10000
 
@@ -452,7 +456,8 @@ function parseRows(xml, p, book, rows) {
 }
 
 // Reads every sheet's cell values: [{ sheet: name, data: [[cell, ...], ...] }].
-async function readWorkbook(file, onProgress) {
+// preview is { onPreview, minBytes } (see parseExcel).
+async function readWorkbook(file, onProgress, preview) {
   const entries = await readZipDirectory(file)
   const packageRels = await readRelationships(file, entries, '')
   const workbookPath = [...packageRels.values()].find((r) => r.type.endsWith('/officeDocument'))?.target ?? 'xl/workbook.xml'
@@ -478,7 +483,17 @@ async function readWorkbook(file, onProgress) {
     const data = []
     if (entry) {
       const label = sheetTags.length > 1 ? `Reading ${name}…` : 'Reading workbook…'
-      await readEntryInParts(file, entry, 'worksheet', 'row', (xml, p) => parseRows(xml, p, book, data), (fraction) =>
+      // Only the first sheet is previewed: it is the one the page opens on.
+      let previewPending = sheets.length === 0 && Boolean(preview.onPreview) && entry.size >= preview.minBytes
+      const onPart = (xml, p) => {
+        parseRows(xml, p, book, data)
+        if (previewPending && data.length > PREVIEW_ROWS) {
+          previewPending = false
+          const sheet = parseSheet(name, data.slice(0, PREVIEW_ROWS + 1), '', () => {})
+          if (sheet) preview.onPreview(sheet)
+        }
+      }
+      await readEntryInParts(file, entry, 'worksheet', 'row', onPart, (fraction) =>
         onProgress(`${label} ${Math.round(fraction * 100)}%`),
       )
     }
@@ -496,7 +511,10 @@ async function readWorkbook(file, onProgress) {
 // Each row is an array: row[column.index] is the cell value, and row[columns.length] is the
 // row's lowercase search text. Arrays (not objects) keep the hand-off from the worker fast.
 // onProgress(message) reports what is happening, for the loading screen.
-export async function parseExcel(file, onProgress = () => {}) {
+// onPreview(sheet), if given, is called once with the first sheet's first rows while a large file is
+// still being read: same shape as a sheet in the result, with columns detected from those rows only.
+// previewMinBytes is the (uncompressed) sheet size from which a preview is sent.
+export async function parseExcel(file, onProgress = () => {}, { onPreview, previewMinBytes = PREVIEW_MIN_BYTES } = {}) {
   if (!file.name.toLowerCase().endsWith('.xlsx')) {
     throw new ImportError('Please choose an .xlsx file.', `Selected file: ${file.name}`)
   }
@@ -505,7 +523,7 @@ export async function parseExcel(file, onProgress = () => {}) {
   onProgress('Reading workbook…')
   let rawSheets
   try {
-    rawSheets = await readWorkbook(file, onProgress)
+    rawSheets = await readWorkbook(file, onProgress, { onPreview, minBytes: previewMinBytes })
   } catch (err) {
     if (err instanceof ImportError) throw err
     throw new ImportError(UNREADABLE, err?.stack ?? err?.message ?? String(err))

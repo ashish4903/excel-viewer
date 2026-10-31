@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ImportError, parseExcel } from './parseExcel.js'
 import { makeXlsx } from './xlsxFixture.js'
 
@@ -196,6 +196,30 @@ describe('parseExcel: reading cells', () => {
       { name: 'First', rows: [['B'], [2]] },
     ])
     expect((await parseExcel(file)).sheets.map((s) => s.name)).toEqual(['Second & <more>', 'First'])
+  })
+})
+
+describe('parseExcel: preview of large files', () => {
+  const rows = [['ID', 'Name'], ...Array.from({ length: 3000 }, (_, i) => [i, `name ${i}`])]
+
+  it('sends the first sheet’s first 100 rows early, then returns the whole sheet', async () => {
+    const previews = []
+    const file = makeXlsx([{ name: 'Big', rows }, { name: 'Other', rows }])
+    const { sheets } = await parseExcel(file, () => {}, { onPreview: (sheet) => previews.push(sheet), previewMinBytes: 0 })
+
+    expect(previews).toHaveLength(1) // only the first sheet
+    expect(previews[0].name).toBe('Big')
+    expect(previews[0].rows).toHaveLength(100)
+    expect(previews[0].rows[0].slice(0, 2)).toEqual([0, 'name 0'])
+    expect(previews[0].columns.map((c) => c.header)).toEqual(['ID', 'Name'])
+    expect(sheets[0].rows).toHaveLength(3000)
+  })
+
+  it('sends no preview for small sheets or sheets with fewer rows', async () => {
+    const onPreview = vi.fn()
+    await parseExcel(makeXlsx([{ name: 'Big', rows }]), () => {}, { onPreview }) // under the size limit
+    await parseExcel(makeXlsx([{ name: 'Small', rows: rows.slice(0, 50) }]), () => {}, { onPreview, previewMinBytes: 0 })
+    expect(onPreview).not.toHaveBeenCalled()
   })
 })
 

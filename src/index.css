@@ -1286,7 +1286,8 @@ th:first-child {
   z-index: 3;
 }
 
-th button {
+th button,
+th .th-label {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1302,6 +1303,11 @@ th button {
   letter-spacing: 0.05em;
   cursor: pointer;
   transition: color 0.15s;
+}
+
+/* Plain header text while sorting is unavailable (a file is still loading). */
+th .th-label {
+  cursor: default;
 }
 
 th button:hover,

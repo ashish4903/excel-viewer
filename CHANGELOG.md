@@ -5,6 +5,9 @@ Versions follow [Semantic Versioning](https://semver.org): see "Versions and rel
 
 ## [Unreleased]
 
+### Performance
+- Large files show their first 100 rows within a couple of seconds while the rest loads (120,000 rows × 140 columns: first rows after about 2 seconds instead of 13). Search, filters and sorting appear when the whole file is ready.
+
 ## [1.0.0] - 2026-10-29
 
 The first numbered release. It covers everything built so far.

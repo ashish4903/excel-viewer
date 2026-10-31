@@ -1,11 +1,15 @@
 import CellValue from './CellValue.jsx'
 import Icon from './Icon.jsx'
 
+// Without onSort (while a file is still loading), headers are plain text instead of sort buttons.
 function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey }) {
   return (
     <div className="table-wrap">
       <table>
-        <caption className="sr-only">Results. Column buttons sort the table; press Enter or Space on a row to see all its details.</caption>
+        <caption className="sr-only">
+          {onSort ? 'Results. Column buttons sort the table; press' : 'First rows of the file. Press'} Enter or Space on a row to see all
+          its details.
+        </caption>
         <thead>
           <tr>
             {columns.map((c) => {
@@ -16,12 +20,16 @@ function DataTable({ rows, columns, sort, onSort, onSelect, query, animationKey 
                   className={active ? 'sorted' : undefined}
                   aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  <button type="button" onClick={() => onSort(c.key)}>
-                    {c.label}
-                    <span className="sort-icon">
-                      <Icon name={active ? (sort.direction === 'asc' ? 'arrowUp' : 'arrowDown') : 'sort'} size={14} />
-                    </span>
-                  </button>
+                  {onSort ? (
+                    <button type="button" onClick={() => onSort(c.key)}>
+                      {c.label}
+                      <span className="sort-icon">
+                        <Icon name={active ? (sort.direction === 'asc' ? 'arrowUp' : 'arrowDown') : 'sort'} size={14} />
+                      </span>
+                    </button>
+                  ) : (
+                    <span className="th-label">{c.label}</span>
+                  )}
                 </th>
               )
             })}

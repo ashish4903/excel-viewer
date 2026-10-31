@@ -2,6 +2,7 @@ import { decodeRows } from './rowTransfer.js'
 
 // Runs parseExcel in a Web Worker so large files don't freeze the page.
 // onProgress(message) receives status text while the file is being read.
+// onPreview(sheet) receives the first rows of a large file early (see parseExcel).
 // Resolves to the same { sheets } shape parseExcel returns. Rejects with an Error whose
 // `detail` holds technical information for the "Technical details" section and the console.
 function failure(message, detail) {
@@ -10,7 +11,7 @@ function failure(message, detail) {
   return err
 }
 
-export function parseInWorker(file, onProgress = () => {}) {
+export function parseInWorker(file, onProgress = () => {}, onPreview = () => {}) {
   return new Promise((resolve, reject) => {
     let worker
     try {
@@ -26,6 +27,8 @@ export function parseInWorker(file, onProgress = () => {}) {
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') {
         onProgress(data.message)
+      } else if (data.type === 'preview') {
+        onPreview(data.sheet)
       } else if (data.type === 'rows') {
         decodeRows(data, (stringsBySheet[data.sheet] ??= []), (rowsBySheet[data.sheet] ??= []))
         received += data.search.length
