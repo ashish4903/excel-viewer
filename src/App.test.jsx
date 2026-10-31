@@ -6,9 +6,12 @@ import App from './App.jsx'
 import { makeXlsx } from './utils/xlsxFixture.js'
 
 // The worker can't run in tests: parse on the main thread instead, with the real parseExcel.
+// Tests can replace one parse with parseMock.mockImplementationOnce (e.g. to hold a preview on screen).
+const parseMock = vi.hoisted(() => ({ fn: null }))
 vi.mock('./utils/parseInWorker.js', async () => {
   const { parseExcel } = await import('./utils/parseExcel.js')
-  return { parseInWorker: (file, onProgress) => parseExcel(file, onProgress) }
+  parseMock.fn = vi.fn((file, onProgress, onPreview) => parseExcel(file, onProgress, { onPreview }))
+  return { parseInWorker: (...args) => parseMock.fn(...args) }
 })
 
 const STATUSES = ['Certified', 'Denied', 'Withdrawn']
@@ -72,6 +75,51 @@ describe('uploading a file', () => {
     expect(alert.textContent).toMatch(/isn’t a real .xlsx workbook/)
     expect(within(alert).getByText('Technical details')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
+  })
+})
+
+describe('large files', () => {
+  const bigFile = () =>
+    makeXlsx([{ name: 'Cases', rows: [SHEET[0], ...Array.from({ length: 150 }, (_, i) => [`G-${String(i + 1).padStart(3, '0')}`, 'Certified', 'CA', 50000])] }], {
+      fileName: 'big.xlsx',
+    })
+
+  it('shows the first rows while the rest loads, then the full file on the same page', async () => {
+    const { parseExcel } = await import('./utils/parseExcel.js')
+    let finish
+    parseMock.fn.mockImplementationOnce(async (file, onProgress, onPreview) => {
+      const result = await parseExcel(file, onProgress, { onPreview, previewMinBytes: 0 })
+      await new Promise((resolve) => (finish = resolve))
+      return result
+    })
+    const user = userEvent.setup()
+    await openFile(user, bigFile())
+
+    expect((await screen.findByRole('status')).textContent).toMatch(/Showing the first 100 rows/)
+    expect(screen.queryByLabelText('Search all columns')).toBeNull() // search and filters wait
+    expect(within(screen.getByRole('table')).queryAllByRole('button')).toHaveLength(0) // no sort buttons yet
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(firstCells()[0]).toBe('G-026')
+
+    finish()
+    expect(await screen.findByLabelText('Search all columns')).toBeTruthy()
+    expect(screen.queryByText(/Showing the first/)).toBeNull()
+    expect(firstCells()[0]).toBe('G-026') // still on page 2
+    expect(screen.getByRole('button', { name: /Next page/ })).toBeTruthy()
+  })
+
+  it('goes back to the upload screen with the error if the file fails after the preview', async () => {
+    parseMock.fn.mockImplementationOnce(async (file, onProgress, onPreview) => {
+      const { parseExcel } = await import('./utils/parseExcel.js')
+      await parseExcel(file, onProgress, { onPreview, previewMinBytes: 0 })
+      throw Object.assign(new Error('Could not read this workbook.'), { detail: 'test failure' })
+    })
+    const user = userEvent.setup()
+    await openFile(user, bigFile())
+
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Could not read this workbook/)
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.getByText('Drop your Excel file here')).toBeTruthy()
   })
 })
 

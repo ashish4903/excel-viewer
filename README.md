@@ -20,7 +20,7 @@ Files are read entirely in your browser. Nothing is uploaded to a server, so it 
 - **Multiple sheets** appear as tabs.
 - **Row details:** click a row to see all its fields, with copy buttons.
 - **Export** the filtered rows as CSV. Text that looks like a formula (starting with = + - @) is saved as plain text, so it can't run when the file is opened in Excel.
-- **Large files:** 50,000 rows open in about 2–4 seconds, and 120,000 rows × 140 columns in about 13, without freezing the page. The workbook is read by a small built-in reader that uses the browser's own unzip support, in a background worker.
+- **Large files:** 50,000 rows open in about 2–4 seconds, and 120,000 rows × 140 columns in about 11, without freezing the page. On large files the first rows appear within a couple of seconds while the rest loads. The workbook is read by a small built-in reader that uses the browser's own unzip support, in a background worker.
 - **Responsive:** a table on desktop and cards on phones, with light and dark themes.
 - **Clear error messages** for empty, password-protected, old .xls or renamed files, with technical details for troubleshooting.
 
